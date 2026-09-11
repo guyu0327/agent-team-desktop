@@ -5,7 +5,8 @@ import { useConversationStore } from '@/stores/conversation'
 import { useUserStore } from '@/stores/user'
 import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
-import { alertAction } from '@/composables/confirm'
+import { alertAction, confirmAction } from '@/composables/confirm'
+import { stopOrchestration } from '@/api/conversation'
 import type { Agent, Message } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
 import ChatMenu from './components/ChatMenu.vue'
@@ -200,6 +201,23 @@ async function handleSend() {
   }
 }
 
+async function handleStopCoordination() {
+  const name = coordinator.value?.name
+  const ok = await confirmAction({
+    title: '终止协作',
+    message: `确定要终止「${name ?? '编排者'}」正在进行的协作吗？已产生的输出会保留。`,
+    confirmText: '终止',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    const res = await stopOrchestration(props.id)
+    if (!res.stopped) alertAction('当前没有进行中的协作')
+  } catch (err) {
+    alertAction(err instanceof Error ? err.message : '终止失败')
+  }
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (mentionCandidates.value.length > 0) {
     if (e.key === 'ArrowDown') {
@@ -269,6 +287,7 @@ function onKeydown(e: KeyboardEvent) {
           :sender-name="senderInfo(msg).name"
           :sender-avatar="senderInfo(msg).avatar"
           :badge="senderBadge(msg)"
+          :show-name="conversation?.type === 'group' && !isSelf(msg)"
           :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
         />
       </template>
@@ -278,6 +297,7 @@ function onKeydown(e: KeyboardEvent) {
     <div v-if="coordinator" class="coordination-tip">
       <span class="pulse"></span>
       <span>「{{ coordinator.name }}」正在协调团队…</span>
+      <button class="stop-btn" @click="handleStopCoordination">终止</button>
     </div>
 
     <div v-if="configTip && singleAgent" class="config-tip">
@@ -431,6 +451,22 @@ function onKeydown(e: KeyboardEvent) {
     background: #34d399;
     animation: coordination-pulse 1.4s infinite ease-in-out;
     flex-shrink: 0;
+  }
+
+  .stop-btn {
+    margin-left: auto;
+    padding: 2px 10px;
+    border-radius: $radius-sm;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: $text-secondary;
+    font-size: $font-size-xs;
+    transition: all $transition-fast;
+
+    &:hover {
+      color: #ff6b6b;
+      border-color: rgba(255, 107, 107, 0.5);
+      background: rgba(255, 107, 107, 0.08);
+    }
   }
 }
 

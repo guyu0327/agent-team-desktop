@@ -46,6 +46,10 @@ export function resetMessages(id: string): Promise<void> {
   return request(`/conversations/${id}/messages`, { method: 'DELETE' })
 }
 
+export function stopOrchestration(id: string): Promise<{ stopped: boolean }> {
+  return request(`/conversations/${id}/stop`, { method: 'POST', body: {} })
+}
+
 export function listMessages(id: string, before?: number, limit = 50): Promise<MessagePage> {
   const query = before !== undefined ? `?before=${before}&limit=${limit}` : `?limit=${limit}`
   return request(`/conversations/${id}/messages${query}`)

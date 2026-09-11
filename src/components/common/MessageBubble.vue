@@ -12,6 +12,8 @@ const props = defineProps<{
   /** 发送者标识徽标，如编排者的「编排者」 */
   badge?: string
   typing?: boolean
+  /** 是否在气泡上方显示发送者名称（群聊场景） */
+  showName?: boolean
 }>()
 
 /** 只有智能体消息走 Markdown 渲染；自己消息和错误提示保持纯文本 */
@@ -22,7 +24,10 @@ const rendered = computed(() => renderMarkdown(props.message.content))
   <div class="message-bubble" :class="{ self }">
     <Avatar :name="senderName" :avatar="senderAvatar" :size="36" />
     <div class="bubble-col">
-      <span v-if="badge" class="badge">{{ badge }}</span>
+      <div class="bubble-info">
+        <span v-if="showName && senderName" class="sender-name">{{ senderName }}</span>
+        <span v-if="badge" class="badge">{{ badge }}</span>
+      </div>
       <div class="bubble" :class="{ error: message.type === 'error' }">
         <div v-if="typing && !message.content" class="typing">
           <span></span><span></span><span></span>
@@ -75,6 +80,26 @@ const rendered = computed(() => renderMarkdown(props.message.content))
 }
 
 .self .bubble-col .badge {
+  align-self: flex-end;
+}
+
+.bubble-info {
+  margin-bottom: 4px;
+}
+
+.sender-name {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: $font-size-xs;
+  color: $text-tertiary;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 8px;
+}
+
+.self .sender-name {
   align-self: flex-end;
 }
 
