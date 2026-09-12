@@ -4,7 +4,7 @@ import type { Agent, Conversation } from '@/types'
 import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
-import { confirmAction } from '@/composables/confirm'
+import { alertAction, confirmAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
 
 const props = defineProps<{ conversation: Conversation }>()
@@ -85,6 +85,17 @@ async function disbandGroup() {
 function startEdit() {
   nameDraft.value = props.conversation.name
   editingName.value = true
+}
+
+const currentMode = computed(() => props.conversation.chatMode ?? 'passive')
+
+async function toggleMode() {
+  const next = currentMode.value === 'free' ? 'passive' : 'free'
+  try {
+    await conversationStore.setChatMode(props.conversation.id, next)
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : '设置失败')
+  }
 }
 
 function saveName() {
@@ -185,6 +196,17 @@ function kick(agent: Agent) {
           <svg class="edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
             <path d="m18 2 4 4-13 13H5v-4z" />
           </svg>
+        </button>
+      </div>
+
+      <div class="mode-section">
+        <div class="section-title">群聊模式</div>
+        <button class="mode-row" @click="toggleMode">
+          <span class="mode-info">
+            <span class="mode-name">自由讨论</span>
+            <span class="mode-desc">开启后成员接龙自由讨论，无需逐个 @；群里有编排者时仍由编排者协调</span>
+          </span>
+          <span class="switch" :class="{ on: currentMode === 'free' }"><span class="knob"></span></span>
         </button>
       </div>
 
@@ -419,6 +441,74 @@ function kick(agent: Agent) {
 
   &:focus {
     outline: 1px solid $primary-color;
+  }
+}
+
+.mode-section {
+  padding: $spacing-sm $spacing-md $spacing-md;
+  border-top: 1px solid $border-light;
+}
+
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm;
+  border-radius: $radius-sm;
+  text-align: left;
+  transition: background $transition-fast;
+
+  &:hover {
+    background: $bg-panel-hover;
+  }
+
+  .mode-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .mode-name {
+    font-size: $font-size-base;
+    color: $text-primary;
+  }
+
+  .mode-desc {
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+    line-height: 1.5;
+  }
+}
+
+.switch {
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: $border-color;
+  position: relative;
+  transition: background $transition-fast;
+  flex-shrink: 0;
+
+  &.on {
+    background: $primary-color;
+  }
+
+  .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform $transition-fast;
+  }
+
+  &.on .knob {
+    transform: translateX(18px);
   }
 }
 

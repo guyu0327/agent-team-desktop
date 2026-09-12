@@ -29,6 +29,17 @@ const rendered = computed(() => renderMarkdown(props.message.content))
         <span v-if="badge" class="badge">{{ badge }}</span>
       </div>
       <div class="bubble" :class="{ error: message.type === 'error' }">
+        <div v-if="message.attachments?.length" class="attachments">
+          <span v-for="att in message.attachments" :key="att.path" class="attachment" :title="att.path">
+            <svg v-if="att.type === 'dir'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5" />
+            </svg>
+            <span class="att-name">{{ att.name }}</span>
+          </span>
+        </div>
         <div v-if="typing && !message.content" class="typing">
           <span></span><span></span><span></span>
         </div>
@@ -116,6 +127,44 @@ const rendered = computed(() => renderMarkdown(props.message.content))
     background: rgba(250, 81, 81, 0.12);
     border: 1px solid rgba(250, 81, 81, 0.35);
     color: #ff9c9c;
+  }
+
+  .attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .attachment {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 220px;
+    padding: 4px 9px;
+    border-radius: $radius-sm;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    cursor: default;
+
+    svg {
+      width: 14px;
+      height: 14px;
+      color: #fbbc54;
+      flex-shrink: 0;
+    }
+
+    .att-name {
+      font-size: $font-size-sm;
+      color: $text-primary;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 
   .plain {

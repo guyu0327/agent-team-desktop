@@ -1,4 +1,4 @@
-import type { Conversation, Message } from '@/types'
+import type { Attachment, Conversation, Message } from '@/types'
 import { request } from './http'
 
 export interface MessagePage {
@@ -14,8 +14,12 @@ export function createSingle(agentId: string): Promise<Conversation> {
   return request('/conversations/single', { method: 'POST', body: { agentId } })
 }
 
-export function createGroup(name: string, memberIds: string[]): Promise<Conversation> {
-  return request('/conversations/group', { method: 'POST', body: { name, memberIds } })
+export function createGroup(
+  name: string,
+  memberIds: string[],
+  chatMode: 'passive' | 'free' = 'passive',
+): Promise<Conversation> {
+  return request('/conversations/group', { method: 'POST', body: { name, memberIds, chatMode } })
 }
 
 export function renameConversation(id: string, name: string): Promise<void> {
@@ -24,6 +28,10 @@ export function renameConversation(id: string, name: string): Promise<void> {
 
 export function pinConversation(id: string, pinned: boolean): Promise<void> {
   return request(`/conversations/${id}/pin`, { method: 'PUT', body: { pinned } })
+}
+
+export function setConversationMode(id: string, mode: 'passive' | 'free'): Promise<void> {
+  return request(`/conversations/${id}/mode`, { method: 'PUT', body: { mode } })
 }
 
 export function markRead(id: string): Promise<void> {
@@ -67,6 +75,9 @@ export interface SendStreamHandlers {
   /** 编排者开始/结束协调（会话级状态） */
   onCoordinationStart?(e: { agentId: string; conversationId: string }): void
   onCoordinationEnd?(e: { agentId: string; conversationId: string }): void
+  /** 自由讨论接龙开始/结束（会话级状态） */
+  onDiscussionStart?(e: { conversationId: string }): void
+  onDiscussionEnd?(e: { conversationId: string }): void
   onDone?(): void
 }
 
@@ -83,11 +94,12 @@ export async function sendMessageStream(
   conversationId: string,
   content: string,
   handlers: SendStreamHandlers,
+  attachments: Attachment[] = [],
 ): Promise<void> {
   const res = await fetch(`/api/conversations/${conversationId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, attachments: attachments.map((a) => ({ path: a.path })) }),
   })
   if (!res.ok || !res.body) {
     let message = `发送失败 (${res.status})`
@@ -159,6 +171,12 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
       break
     case 'coordination_end':
       handlers.onCoordinationEnd?.(payload)
+      break
+    case 'discussion_start':
+      handlers.onDiscussionStart?.(payload)
+      break
+    case 'discussion_end':
+      handlers.onDiscussionEnd?.(payload)
       break
     case 'done':
       handlers.onDone?.()

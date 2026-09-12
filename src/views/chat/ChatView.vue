@@ -7,8 +7,9 @@ import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { stopOrchestration } from '@/api/conversation'
-import type { Agent, Message } from '@/types'
+import type { Agent, Attachment, Message } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
+import FilePickerModal from '@/components/common/FilePickerModal.vue'
 import ChatMenu from './components/ChatMenu.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import { formatDividerTime } from '@/utils/time'
@@ -28,6 +29,8 @@ const draft = ref('')
 const listRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
 const menuOpen = ref(false)
+const showFilePicker = ref(false)
+const pendingAttachments = ref<Attachment[]>([])
 
 // @ 成员自动补全：start 为草稿中 @ 的下标，query 为 @ 后到光标间的文本
 const mention = ref<{ start: number; query: string } | null>(null)
@@ -64,6 +67,8 @@ const coordinator = computed(() => {
   const agentId = conversationStore.orchestratingByConv[props.id]
   return agentId ? (agentStore.getById(agentId) ?? null) : null
 })
+
+const discussing = computed(() => conversationStore.isDiscussing(props.id))
 
 const configTip = computed(() => {
   const agent = singleAgent.value
@@ -167,9 +172,41 @@ function senderBadge(msg: Message): string | undefined {
   return agentStore.getById(msg.senderId)?.isOrchestrator ? '编排者' : undefined
 }
 
+/** 贴底自动滚动：用户上翻即暂停，滚回底部（或发消息/切会话）后恢复 */
+const stickToBottom = ref(true)
+let lastScrollTop = 0
+
+function onListScroll() {
+  const el = listRef.value
+  if (!el) return
+  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  if (distanceFromBottom < 40) {
+    stickToBottom.value = true
+  } else if (el.scrollTop < lastScrollTop) {
+    // 只要向上滚就立即暂停，不设距离阈值
+    stickToBottom.value = false
+  }
+  lastScrollTop = el.scrollTop
+}
+
 async function scrollToBottom() {
+  if (!stickToBottom.value) return
   await nextTick()
-  listRef.value?.scrollTo({ top: listRef.value.scrollHeight })
+  const el = listRef.value
+  // nextTick 期间用户可能已向上滚动，滚动前再核对一次
+  if (!el || !stickToBottom.value) return
+  el.scrollTo({ top: el.scrollHeight })
+  // 同步方向检测基准，避免残留 scrollTop 被误判为向上滚动
+  lastScrollTop = el.scrollTop
+}
+
+async function forceScrollToBottom() {
+  stickToBottom.value = true
+  await scrollToBottom()
+}
+
+function jumpToBottom() {
+  forceScrollToBottom()
 }
 
 watch(
@@ -177,8 +214,9 @@ watch(
   (id) => {
     if (!id) return
     mention.value = null
+    pendingAttachments.value = []
     conversationStore.setActive(id)
-    scrollToBottom()
+    forceScrollToBottom()
   },
   { immediate: true },
 )
@@ -190,22 +228,37 @@ watch(
 
 async function handleSend() {
   const content = draft.value.trim()
-  if (!content) return
+  const attachments = pendingAttachments.value
+  if (!content && attachments.length === 0) return
   draft.value = ''
+  pendingAttachments.value = []
   mention.value = null
+  forceScrollToBottom()
   try {
-    await conversationStore.sendMessage(content)
+    await conversationStore.sendMessage(content, attachments)
   } catch (err) {
     draft.value = content
+    pendingAttachments.value = attachments
     alertAction(err instanceof Error ? err.message : '发送失败')
   }
+}
+
+function addAttachment(att: Attachment) {
+  if (pendingAttachments.value.some((a) => a.path === att.path)) return
+  pendingAttachments.value = [...pendingAttachments.value, att]
+}
+
+function removeAttachment(path: string) {
+  pendingAttachments.value = pendingAttachments.value.filter((a) => a.path !== path)
 }
 
 async function handleStopCoordination() {
   const name = coordinator.value?.name
   const ok = await confirmAction({
-    title: '终止协作',
-    message: `确定要终止「${name ?? '编排者'}」正在进行的协作吗？已产生的输出会保留。`,
+    title: '终止',
+    message: discussing.value
+      ? '确定要终止正在进行的自由讨论吗？已产生的发言会保留。'
+      : `确定要终止「${name ?? '编排者'}」正在进行的协作吗？已产生的输出会保留。`,
     confirmText: '终止',
     danger: true,
   })
@@ -276,27 +329,36 @@ function onKeydown(e: KeyboardEvent) {
       </div>
     </header>
 
-    <div ref="listRef" class="message-list">
-      <template v-for="(msg, i) in messages" :key="msg.id">
-        <div v-if="shouldShowDivider(i)" class="time-divider">
-          {{ formatDividerTime(msg.timestamp) }}
-        </div>
-        <MessageBubble
-          :message="msg"
-          :self="isSelf(msg)"
-          :sender-name="senderInfo(msg).name"
-          :sender-avatar="senderInfo(msg).avatar"
-          :badge="senderBadge(msg)"
-          :show-name="conversation?.type === 'group' && !isSelf(msg)"
-          :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
-        />
-      </template>
-      <div v-if="messages.length === 0" class="empty">暂无消息，开始聊天吧</div>
+    <div class="list-wrap">
+      <div ref="listRef" class="message-list" @scroll="onListScroll">
+        <template v-for="(msg, i) in messages" :key="msg.id">
+          <div v-if="shouldShowDivider(i)" class="time-divider">
+            {{ formatDividerTime(msg.timestamp) }}
+          </div>
+          <MessageBubble
+            :message="msg"
+            :self="isSelf(msg)"
+            :sender-name="senderInfo(msg).name"
+            :sender-avatar="senderInfo(msg).avatar"
+            :badge="senderBadge(msg)"
+            :show-name="conversation?.type === 'group' && !isSelf(msg)"
+            :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
+          />
+        </template>
+        <div v-if="messages.length === 0" class="empty">暂无消息，开始聊天吧</div>
+      </div>
+
+      <button v-if="!stickToBottom" class="to-bottom" title="回到底部" @click="jumpToBottom">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M19 12l-7 7-7-7" />
+        </svg>
+      </button>
     </div>
 
-    <div v-if="coordinator" class="coordination-tip">
+    <div v-if="coordinator || discussing" class="coordination-tip">
       <span class="pulse"></span>
-      <span>「{{ coordinator.name }}」正在协调团队…</span>
+      <span v-if="coordinator">「{{ coordinator.name }}」正在协调团队…</span>
+      <span v-else>自由讨论中，成员正在接龙发言…</span>
       <button class="stop-btn" @click="handleStopCoordination">终止</button>
     </div>
 
@@ -324,8 +386,25 @@ function onKeydown(e: KeyboardEvent) {
           <span class="mention-name">{{ m.name }}</span>
         </button>
       </div>
+      <div v-if="pendingAttachments.length > 0" class="attach-row">
+        <span
+          v-for="att in pendingAttachments"
+          :key="att.path"
+          class="attach-chip"
+          :title="att.path"
+        >
+          <svg v-if="att.type === 'dir'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5" />
+          </svg>
+          <span class="attach-name">{{ att.name }}</span>
+          <button class="attach-remove" title="移除" @click="removeAttachment(att.path)">✕</button>
+        </span>
+      </div>
       <div class="toolbar">
-        <span class="tool" title="发送文件">
+        <span class="tool" title="发送文件" @click="showFilePicker = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
           </svg>
@@ -349,9 +428,18 @@ function onKeydown(e: KeyboardEvent) {
         @keydown="onKeydown"
       />
       <div class="send-row">
-        <button class="send-btn" :disabled="!draft.trim()" @click="handleSend">发送</button>
+        <button class="send-btn" :disabled="!draft.trim() && pendingAttachments.length === 0" @click="handleSend">
+          发送
+        </button>
       </div>
     </footer>
+
+    <FilePickerModal
+      v-if="showFilePicker"
+      :conversation-id="props.id"
+      @select="addAttachment"
+      @close="showFilePicker = false"
+    />
   </div>
 </template>
 
@@ -362,6 +450,43 @@ function onKeydown(e: KeyboardEvent) {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  position: relative;
+}
+
+.list-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.to-bottom {
+  position: absolute;
+  right: 20px;
+  bottom: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  box-shadow: $shadow-md;
+  color: $text-secondary;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  transition: color $transition-fast, border-color $transition-fast;
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:hover {
+    color: $primary-color;
+    border-color: $primary-color;
+  }
 }
 
 .chat-header {
@@ -585,6 +710,55 @@ function onKeydown(e: KeyboardEvent) {
 
     &:hover {
       color: $text-primary;
+    }
+  }
+}
+
+.attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 5px 8px 5px 10px;
+  border-radius: $radius-sm;
+  background: $bg-input;
+  border: 1px solid $border-color;
+
+  svg {
+    width: 15px;
+    height: 15px;
+    color: $text-secondary;
+    flex-shrink: 0;
+  }
+
+  .attach-name {
+    font-size: $font-size-sm;
+    color: $text-primary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .attach-remove {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: $text-tertiary;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all $transition-fast;
+
+    &:hover {
+      background: rgba(250, 81, 81, 0.15);
+      color: #fa5151;
     }
   }
 }

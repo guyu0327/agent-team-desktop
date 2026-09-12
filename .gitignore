@@ -37,3 +37,4 @@ coverage
 .cache
 .temp
 stats.html
+.smoke_ids.json

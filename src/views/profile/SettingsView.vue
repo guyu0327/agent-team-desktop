@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
+import FilePickerModal from '@/components/common/FilePickerModal.vue'
+import { confirmAction } from '@/composables/confirm'
+import type { Attachment } from '@/types'
 
 const root = ref('')
 const extraDirsText = ref('')
 const saving = ref(false)
+const resetting = ref(false)
 const feedback = ref<{ ok: boolean; text: string } | null>(null)
+/** 当前打开的目录选择器用途：主工作区 / 白名单 */
+const pickerTarget = ref<'root' | 'extra' | null>(null)
 
 onMounted(async () => {
   try {
@@ -36,6 +42,46 @@ async function save() {
     saving.value = false
   }
 }
+
+/** 放弃未保存的修改，恢复为当前生效的设置 */
+async function reset() {
+  if (resetting.value) return
+  const ok = await confirmAction({
+    title: '放弃修改',
+    message: '确定要放弃未保存的修改，恢复为当前生效的设置吗？',
+    confirmText: '重置',
+    danger: true,
+  })
+  if (!ok) return
+  resetting.value = true
+  feedback.value = null
+  try {
+    const s = await getWorkspaceSettings()
+    root.value = s.root
+    extraDirsText.value = s.extraDirs.join('\n')
+  } catch (e) {
+    feedback.value = { ok: false, text: e instanceof Error ? e.message : '重置失败' }
+  } finally {
+    resetting.value = false
+  }
+}
+
+function pickDir(att: Attachment) {
+  const target = pickerTarget.value
+  pickerTarget.value = null
+  if (target === 'root') {
+    root.value = att.path
+  } else if (target === 'extra') {
+    const lines = extraDirsText.value
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+    if (!lines.includes(att.path)) {
+      lines.push(att.path)
+      extraDirsText.value = lines.join('\n')
+    }
+  }
+}
 </script>
 
 <template>
@@ -45,11 +91,14 @@ async function save() {
 
       <section class="section">
         <h3 class="section-title">文件沙箱</h3>
-        <p class="hint">智能体只能读写下列目录内的文件。主工作区可用相对路径（相对后端运行目录）；白名单目录必须是绝对路径，每行一个。</p>
+        <p class="hint">智能体只能读写下列目录内的文件。主工作区可用相对路径（相对后端运行目录）；白名单目录必须是绝对路径，每行一个。可点击「浏览」在服务器目录中直接选择。</p>
 
         <div class="field">
           <label class="label">主工作区目录</label>
-          <input v-model="root" class="input" type="text" spellcheck="false" placeholder="如 ./workspace 或 D:\agent-workspace" />
+          <div class="input-row">
+            <input v-model="root" class="input" type="text" spellcheck="false" placeholder="如 ./workspace 或 D:\agent-workspace" />
+            <button class="browse-btn" @click="pickerTarget = 'root'">浏览</button>
+          </div>
         </div>
 
         <div class="field">
@@ -61,15 +110,25 @@ async function save() {
             spellcheck="false"
             placeholder="如 D:\Git\my-project"
           ></textarea>
+          <button class="browse-btn add-dir" @click="pickerTarget = 'extra'">＋ 添加白名单目录</button>
         </div>
 
         <p v-if="feedback" class="feedback" :class="feedback.ok ? 'ok' : 'err'">{{ feedback.text }}</p>
 
         <div class="actions">
+          <button class="reset-btn" :disabled="resetting || saving" @click="reset">重置</button>
           <button class="save-btn" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
         </div>
       </section>
     </div>
+
+    <FilePickerModal
+      v-if="pickerTarget"
+      mode="dir"
+      :title="pickerTarget === 'root' ? '选择主工作区目录' : '添加白名单目录'"
+      @select="pickDir"
+      @close="pickerTarget = null"
+    />
   </div>
 </template>
 
@@ -124,6 +183,34 @@ async function save() {
   }
 }
 
+.input-row {
+  display: flex;
+  gap: $spacing-sm;
+
+  .input {
+    flex: 1;
+  }
+}
+
+.browse-btn {
+  padding: 8px $spacing-lg;
+  border-radius: $radius-sm;
+  background: $bg-input;
+  color: $text-primary;
+  font-size: $font-size-sm;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background $transition-fast;
+
+  &:hover {
+    background: $bg-hover;
+  }
+
+  &.add-dir {
+    margin-top: $spacing-sm;
+  }
+}
+
 .input {
   width: 100%;
   padding: 9px $spacing-md;
@@ -164,6 +251,26 @@ async function save() {
 .actions {
   display: flex;
   justify-content: flex-end;
+  gap: $spacing-md;
+}
+
+.reset-btn {
+  padding: 8px $spacing-xl;
+  border-radius: $radius-sm;
+  font-size: $font-size-base;
+  background: $bg-input;
+  color: $text-primary;
+  cursor: pointer;
+  transition: background $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $bg-hover;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
 }
 
 .save-btn {

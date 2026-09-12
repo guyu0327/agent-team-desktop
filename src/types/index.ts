@@ -27,10 +27,19 @@ export interface Conversation {
   agentId?: string | null
   name: string
   memberIds: string[]
+  /** 群聊聊天模式：passive（@谁谁回）| free（成员接龙自由讨论） */
+  chatMode?: 'passive' | 'free'
   pinned?: boolean
   lastMessage: string
   lastMessageTime: number | null
   unreadCount: number
+}
+
+/** 消息/授权共用的附件信息：path 为服务器上的真实绝对路径 */
+export interface Attachment {
+  path: string
+  type: 'file' | 'dir'
+  name: string
 }
 
 export interface Message {
@@ -39,8 +48,33 @@ export interface Message {
   senderType: 'user' | 'agent' | 'system'
   senderId: string
   content: string
+  attachments?: Attachment[]
   timestamp: number
   type: 'text' | 'image' | 'error'
+}
+
+/** 服务端文件浏览条目 */
+export interface FileEntry {
+  name: string
+  path: string
+  directory: boolean
+  size?: number | null
+}
+
+export interface FileListing {
+  path: string
+  name: string
+  parent: string | null
+  truncated: boolean
+  items: FileEntry[]
+}
+
+/** 会话已授权的文件/目录 */
+export interface FileGrant {
+  path: string
+  type: 'file' | 'dir'
+  name: string
+  grantedAt: number
 }
 
 /** 模型预设：apiKey 会返回（供智能体表单只读展示） */

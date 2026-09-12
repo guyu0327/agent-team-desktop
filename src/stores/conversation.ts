@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { Conversation, Message } from '@/types'
+import type { Attachment, Conversation, Message } from '@/types'
 import {
   addMembers,
   createGroup as apiCreateGroup,
@@ -14,6 +14,7 @@ import {
   renameConversation,
   resetMessages,
   sendMessageStream,
+  setConversationMode,
 } from '@/api/conversation'
 import { useAgentStore } from '@/stores/agent'
 
@@ -26,6 +27,8 @@ export const useConversationStore = defineStore('conversation', () => {
   const typingByConv = ref<Record<string, boolean>>({})
   /** 会话 -> 正在协调的编排者 agentId */
   const orchestratingByConv = ref<Record<string, string>>({})
+  /** 会话 -> 是否正在自由讨论接龙 */
+  const discussingByConv = ref<Record<string, boolean>>({})
 
   /** 同一会话的发送串行化，避免两次发送的回复流交错 */
   const sendQueue = new Map<string, Promise<void>>()
@@ -49,6 +52,10 @@ export const useConversationStore = defineStore('conversation', () => {
 
   function isCoordinating(conversationId: string): boolean {
     return !!orchestratingByConv.value[conversationId]
+  }
+
+  function isDiscussing(conversationId: string): boolean {
+    return !!discussingByConv.value[conversationId]
   }
 
   function findConv(id: string): Conversation | undefined {
@@ -100,11 +107,11 @@ export const useConversationStore = defineStore('conversation', () => {
     if (conv) applyPreview(conv, msg)
   }
 
-  function sendMessage(content: string): Promise<void> {
+  function sendMessage(content: string, attachments: Attachment[] = []): Promise<void> {
     const conversationId = activeId.value
     if (!conversationId) return Promise.resolve()
     const prev = sendQueue.get(conversationId) ?? Promise.resolve()
-    const task = prev.then(() => doSend(conversationId, content))
+    const task = prev.then(() => doSend(conversationId, content, attachments))
     sendQueue.set(
       conversationId,
       task.catch(() => {}),
@@ -112,7 +119,7 @@ export const useConversationStore = defineStore('conversation', () => {
     return task
   }
 
-  async function doSend(conversationId: string, content: string) {
+  async function doSend(conversationId: string, content: string, attachments: Attachment[]) {
     let needsResync = false
     // 编排协作时消息可能进入新建的项目群，结束时要清理这些会话的 typing/coordination 状态
     const typingCids = new Set<string>([conversationId])
@@ -163,7 +170,14 @@ export const useConversationStore = defineStore('conversation', () => {
         onCoordinationEnd: (e) => {
           delete orchestratingByConv.value[e.conversationId]
         },
-      })
+        onDiscussionStart: (e) => {
+          discussingByConv.value[e.conversationId] = true
+          coordCids.add(e.conversationId)
+        },
+        onDiscussionEnd: (e) => {
+          delete discussingByConv.value[e.conversationId]
+        },
+      }, attachments)
     } finally {
       for (const cid of typingCids) typingByConv.value[cid] = false
       for (const cid of coordCids) delete orchestratingByConv.value[cid]
@@ -218,6 +232,12 @@ export const useConversationStore = defineStore('conversation', () => {
     if (conv) conv.name = trimmed
   }
 
+  async function setChatMode(conversationId: string, mode: 'passive' | 'free') {
+    await setConversationMode(conversationId, mode)
+    const conv = findConv(conversationId)
+    if (conv) conv.chatMode = mode
+  }
+
   async function addGroupMembers(conversationId: string, agentIds: string[]) {
     const conv = await addMembers(conversationId, agentIds)
     replaceConv(conv)
@@ -240,8 +260,12 @@ export const useConversationStore = defineStore('conversation', () => {
     return conv.id
   }
 
-  async function createGroup(name: string, memberIds: string[]): Promise<Conversation> {
-    const conv = await apiCreateGroup(name.trim() || '未命名群聊', memberIds)
+  async function createGroup(
+    name: string,
+    memberIds: string[],
+    chatMode: 'passive' | 'free' = 'passive',
+  ): Promise<Conversation> {
+    const conv = await apiCreateGroup(name.trim() || '未命名群聊', memberIds, chatMode)
     conversations.value.push(conv)
     return conv
   }
@@ -268,6 +292,8 @@ export const useConversationStore = defineStore('conversation', () => {
     isTyping,
     orchestratingByConv,
     isCoordinating,
+    discussingByConv,
+    isDiscussing,
     loadConversations,
     setActive,
     sendMessage,
@@ -279,6 +305,7 @@ export const useConversationStore = defineStore('conversation', () => {
     resetConversation,
     removeConversation,
     renameGroup,
+    setChatMode,
     addGroupMembers,
     removeGroupMember,
   }

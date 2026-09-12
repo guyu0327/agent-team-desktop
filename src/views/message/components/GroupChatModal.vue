@@ -16,6 +16,7 @@ const presetStore = useModelPresetStore()
 
 const name = ref('')
 const selectedIds = ref<string[]>([])
+const freeMode = ref(false)
 
 const canCreate = computed(() => selectedIds.value.length > 0)
 
@@ -27,7 +28,11 @@ function toggle(id: string) {
 
 async function create() {
   if (!canCreate.value) return
-  const conv = await conversationStore.createGroup(name.value.trim() || '未命名群聊', selectedIds.value)
+  const conv = await conversationStore.createGroup(
+    name.value.trim() || '未命名群聊',
+    selectedIds.value,
+    freeMode.value ? 'free' : 'passive',
+  )
   emit('created', conv.id)
 }
 </script>
@@ -44,7 +49,13 @@ async function create() {
 
       <div class="field">
         <label class="label">群内回复方式</label>
-        <p class="hint">@ 某位成员时仅由被 @ 的成员回复，否则所有成员依次回复</p>
+        <button type="button" class="mode-row" @click="freeMode = !freeMode">
+          <span class="mode-info">
+            <span class="mode-name">自由讨论</span>
+            <span class="mode-desc">开启后成员接龙自由讨论，无需逐个 @；关闭时 @谁谁回，没@全员依次回复</span>
+          </span>
+          <span class="switch" :class="{ on: freeMode }"><span class="knob"></span></span>
+        </button>
       </div>
 
       <div class="field members-field">
@@ -141,6 +152,70 @@ async function create() {
   font-size: $font-size-xs;
   color: $text-tertiary;
   line-height: 1.5;
+}
+
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid $border-color;
+  border-radius: $radius-sm;
+  text-align: left;
+  transition: border-color $transition-fast;
+
+  &:hover {
+    border-color: $primary-color;
+  }
+
+  .mode-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .mode-name {
+    font-size: $font-size-base;
+    color: $text-primary;
+  }
+
+  .mode-desc {
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+    line-height: 1.5;
+  }
+}
+
+.switch {
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: $border-color;
+  position: relative;
+  transition: background $transition-fast;
+  flex-shrink: 0;
+
+  &.on {
+    background: $primary-color;
+  }
+
+  .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform $transition-fast;
+  }
+
+  &.on .knob {
+    transform: translateX(18px);
+  }
 }
 
 .members-field {
