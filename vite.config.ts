@@ -14,6 +14,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        ws: true,
       },
     },
     allowedHosts: ['732bec79.r25.cpolar.top'],

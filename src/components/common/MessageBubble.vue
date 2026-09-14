@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { Message } from '@/types'
 import Avatar from '@/components/common/Avatar.vue'
 import { renderMarkdown } from '@/utils/markdown'
+import { fsContentUrl } from '@/utils/image'
 
 const props = defineProps<{
   message: Message
@@ -18,6 +19,10 @@ const props = defineProps<{
 
 /** 只有智能体消息走 Markdown 渲染；自己消息和错误提示保持纯文本 */
 const rendered = computed(() => renderMarkdown(props.message.content))
+
+function viewImage(path: string) {
+  window.open(fsContentUrl(path), '_blank')
+}
 </script>
 
 <template>
@@ -30,15 +35,25 @@ const rendered = computed(() => renderMarkdown(props.message.content))
       </div>
       <div class="bubble" :class="{ error: message.type === 'error' }">
         <div v-if="message.attachments?.length" class="attachments">
-          <span v-for="att in message.attachments" :key="att.path" class="attachment" :title="att.path">
-            <svg v-if="att.type === 'dir'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            </svg>
-            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5" />
-            </svg>
-            <span class="att-name">{{ att.name }}</span>
-          </span>
+          <template v-for="att in message.attachments" :key="att.path">
+            <img
+              v-if="att.type === 'image'"
+              class="attachment-image"
+              :src="fsContentUrl(att.path)"
+              :title="att.path"
+              alt=""
+              @click="viewImage(att.path)"
+            />
+            <span v-else class="attachment" :title="att.path">
+              <svg v-if="att.type === 'dir'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5" />
+              </svg>
+              <span class="att-name">{{ att.name }}</span>
+            </span>
+          </template>
         </div>
         <div v-if="typing && !message.content" class="typing">
           <span></span><span></span><span></span>
@@ -137,6 +152,20 @@ const rendered = computed(() => renderMarkdown(props.message.content))
 
     &:last-child {
       margin-bottom: 0;
+    }
+  }
+
+  .attachment-image {
+    display: block;
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: $radius-sm;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    cursor: zoom-in;
+    background: rgba(0, 0, 0, 0.3);
+
+    .self & {
+      border-color: rgba(255, 255, 255, 0.25);
     }
   }
 

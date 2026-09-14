@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import type { Attachment, FileGrant, FileListing } from '@/types'
 import { listDir, listFileGrants, revokeFile } from '@/api/fs'
 import { alertAction, confirmAction } from '@/composables/confirm'
+import { isImagePath } from '@/utils/image'
 
 const props = withDefaults(
   defineProps<{
@@ -59,7 +60,8 @@ function openEntry(entry: { directory: boolean; path: string }) {
     return
   }
   if (props.mode === 'both') {
-    select({ path: entry.path, type: 'file', name: fileNameOf(entry.path) })
+    const name = fileNameOf(entry.path)
+    select({ path: entry.path, type: isImagePath(name) ? 'image' : 'file', name })
   }
 }
 

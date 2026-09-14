@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
+import { getAsrStreamSettings, updateAsrStreamSettings } from '@/api/asr'
 import FilePickerModal from '@/components/common/FilePickerModal.vue'
 import { confirmAction } from '@/composables/confirm'
 import type { Attachment } from '@/types'
@@ -13,6 +14,12 @@ const feedback = ref<{ ok: boolean; text: string } | null>(null)
 /** 当前打开的目录选择器用途：主工作区 / 白名单 */
 const pickerTarget = ref<'root' | 'extra' | null>(null)
 
+const streamAppId = ref('')
+const streamApiKey = ref('')
+const streamApiSecret = ref('')
+const streamSaving = ref(false)
+const streamFeedback = ref<{ ok: boolean; text: string } | null>(null)
+
 onMounted(async () => {
   try {
     const s = await getWorkspaceSettings()
@@ -20,6 +27,14 @@ onMounted(async () => {
     extraDirsText.value = s.extraDirs.join('\n')
   } catch (e) {
     feedback.value = { ok: false, text: e instanceof Error ? e.message : '加载设置失败' }
+  }
+  try {
+    const s = await getAsrStreamSettings()
+    streamAppId.value = s.appId
+    streamApiKey.value = s.apiKey
+    streamApiSecret.value = s.apiSecret
+  } catch (e) {
+    streamFeedback.value = { ok: false, text: e instanceof Error ? e.message : '加载实时识别设置失败' }
   }
 })
 
@@ -82,6 +97,32 @@ function pickDir(att: Attachment) {
     }
   }
 }
+
+async function saveAsrStream() {
+  if (streamSaving.value) return
+  streamSaving.value = true
+  streamFeedback.value = null
+  try {
+    const s = await updateAsrStreamSettings({
+      appId: streamAppId.value.trim(),
+      apiKey: streamApiKey.value.trim(),
+      apiSecret: streamApiSecret.value.trim(),
+    })
+    streamAppId.value = s.appId
+    streamApiKey.value = s.apiKey
+    streamApiSecret.value = s.apiSecret
+    streamFeedback.value = {
+      ok: true,
+      text: s.appId
+        ? '已保存，点按聊天输入框麦克风即可实时转写'
+        : '已清除实时识别配置，麦克风恢复为按住说话',
+    }
+  } catch (e) {
+    streamFeedback.value = { ok: false, text: e instanceof Error ? e.message : '保存失败' }
+  } finally {
+    streamSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -118,6 +159,32 @@ function pickDir(att: Attachment) {
         <div class="actions">
           <button class="reset-btn" :disabled="resetting || saving" @click="reset">重置</button>
           <button class="save-btn" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <h3 class="section-title">实时语音识别</h3>
+        <p class="hint">配置讯飞开放平台（xfyun.cn，创建应用并开通「语音听写」，每天 500 次免费）后，点按聊天输入框麦克风即开始实时转写，边说边出字，再次点按或 Esc 停止。三项全部留空则清除配置。</p>
+
+        <div class="field">
+          <label class="label">APPID</label>
+          <input v-model="streamAppId" class="input" type="text" spellcheck="false" placeholder="讯飞应用 APPID" />
+        </div>
+
+        <div class="field">
+          <label class="label">APIKey</label>
+          <input v-model="streamApiKey" class="input" type="password" spellcheck="false" placeholder="讯飞应用 APIKey" />
+        </div>
+
+        <div class="field">
+          <label class="label">APISecret</label>
+          <input v-model="streamApiSecret" class="input" type="password" spellcheck="false" placeholder="讯飞应用 APISecret" />
+        </div>
+
+        <p v-if="streamFeedback" class="feedback" :class="streamFeedback.ok ? 'ok' : 'err'">{{ streamFeedback.text }}</p>
+
+        <div class="actions">
+          <button class="save-btn" :disabled="streamSaving" @click="saveAsrStream">{{ streamSaving ? '保存中…' : '保存' }}</button>
         </div>
       </section>
     </div>
@@ -158,6 +225,10 @@ function pickDir(att: Attachment) {
   margin-bottom: $spacing-lg;
 }
 
+.section + .section {
+  margin-top: $spacing-xxl;
+}
+
 .section-title {
   font-size: $font-size-base;
   font-weight: 600;
@@ -170,6 +241,12 @@ function pickDir(att: Attachment) {
   color: $text-tertiary;
   line-height: 1.6;
   margin-bottom: $spacing-md;
+
+  code {
+    font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
+    font-size: 0.9em;
+    color: $text-secondary;
+  }
 }
 
 .field {

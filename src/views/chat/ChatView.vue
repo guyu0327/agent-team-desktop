@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useConversationStore } from '@/stores/conversation'
 import { useUserStore } from '@/stores/user'
@@ -13,6 +13,8 @@ import FilePickerModal from '@/components/common/FilePickerModal.vue'
 import ChatMenu from './components/ChatMenu.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import { formatDividerTime } from '@/utils/time'
+import { fsContentUrl } from '@/utils/image'
+import { useRealtimeVoice } from '@/composables/realtimeVoice'
 
 const props = defineProps<{ id: string }>()
 
@@ -149,6 +151,78 @@ function pickMention(agent: Agent) {
     el.setSelectionRange(caret, caret)
   })
 }
+
+// 实时转写：按住麦克风说话，识别文本实时刷新到草稿尾部（tailLen 剥离法，不干扰用户编辑头部）
+const {
+  phase: rtPhase,
+  streamText: rtStreamText,
+  elapsed: rtElapsed,
+  configured: rtConfigured,
+  stopping: rtStopping,
+  refreshConfigured: rtRefresh,
+  start: rtStart,
+  stop: rtStop,
+  reset: rtReset,
+} = useRealtimeVoice()
+
+let rtTailLen = 0
+
+watch(rtStreamText, (text) => {
+  if (rtPhase.value === 'idle') return
+  const cut = Math.min(rtTailLen, draft.value.length)
+  draft.value = draft.value.slice(0, draft.value.length - cut) + text
+  rtTailLen = text.length
+})
+
+watch(rtPhase, (p, old) => {
+  if (old && old !== 'idle' && p === 'idle') {
+    rtTailLen = 0
+    nextTick(() => {
+      const el = inputRef.value
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(draft.value.length, draft.value.length)
+    })
+  }
+})
+
+async function startRealtime() {
+  rtTailLen = 0
+  rtReset()
+  await rtStart((message) => alertAction(message))
+}
+
+/** 按住说话：按下开始，任意位置松手结束（含 pointercancel） */
+function onMicDown() {
+  if (rtPhase.value !== 'idle') return
+  if (!rtConfigured.value) {
+    router.push('/settings')
+    return
+  }
+  void startRealtime()
+}
+
+function onReleaseAnywhere() {
+  if (rtPhase.value !== 'idle') rtStop()
+}
+
+onMounted(() => {
+  void rtRefresh()
+  window.addEventListener('pointerup', onReleaseAnywhere)
+  window.addEventListener('pointercancel', onReleaseAnywhere)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerup', onReleaseAnywhere)
+  window.removeEventListener('pointercancel', onReleaseAnywhere)
+})
+
+const micTitle = computed(() => {
+  if (rtPhase.value === 'streaming') return rtStopping.value ? '转写收尾中…' : '松开结束'
+  if (rtPhase.value === 'connecting') return '正在连接实时识别…'
+  if (!rtConfigured.value) return '未配置实时语音识别，点击前往设置'
+  return '按住说话，实时转写'
+})
 
 function shouldShowDivider(index: number): boolean {
   if (index === 0) return true
@@ -393,7 +467,8 @@ function onKeydown(e: KeyboardEvent) {
           class="attach-chip"
           :title="att.path"
         >
-          <svg v-if="att.type === 'dir'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <img v-if="att.type === 'image'" class="attach-thumb" :src="fsContentUrl(att.path)" alt="" />
+          <svg v-else-if="att.type === 'dir'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
           </svg>
           <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -403,13 +478,24 @@ function onKeydown(e: KeyboardEvent) {
           <button class="attach-remove" title="移除" @click="removeAttachment(att.path)">✕</button>
         </span>
       </div>
+      <div v-if="rtPhase === 'streaming' && rtStopping" class="voice-status">转写收尾中…</div>
+      <div v-else-if="rtPhase === 'streaming'" class="voice-status recording">
+        ● {{ rtElapsed }}s · 实时转写中 · 松开结束
+      </div>
+      <div v-else-if="rtPhase === 'connecting'" class="voice-status">实时识别连接中…</div>
       <div class="toolbar">
         <span class="tool" title="发送文件" @click="showFilePicker = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
           </svg>
         </span>
-        <span class="tool" title="语音">
+        <span
+          class="tool mic"
+          :class="{ live: rtPhase !== 'idle' }"
+          :title="micTitle"
+          @pointerdown.prevent="onMicDown"
+          @contextmenu.prevent
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <rect x="9" y="3" width="6" height="11" rx="3" />
             <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke-linecap="round" />
@@ -712,6 +798,54 @@ function onKeydown(e: KeyboardEvent) {
       color: $text-primary;
     }
   }
+
+  .mic {
+    user-select: none;
+    touch-action: none;
+
+    &.recording {
+      color: #fa5151;
+      animation: mic-pulse 1.2s infinite ease-in-out;
+    }
+
+    &.live {
+      color: #07c160;
+      animation: mic-pulse 1.2s infinite ease-in-out;
+    }
+  }
+}
+
+.voice-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-sm;
+  color: $text-secondary;
+
+  &.recording {
+    color: #fa5151;
+    animation: mic-pulse 1.2s infinite ease-in-out;
+  }
+
+  &.cancellable {
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+      color: $text-primary;
+    }
+  }
+}
+
+@keyframes mic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .attach-row {
@@ -735,6 +869,16 @@ function onKeydown(e: KeyboardEvent) {
     height: 15px;
     color: $text-secondary;
     flex-shrink: 0;
+  }
+
+  .attach-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    object-fit: cover;
+    border: 1px solid $border-color;
+    flex-shrink: 0;
+    background: rgba(0, 0, 0, 0.3);
   }
 
   .attach-name {

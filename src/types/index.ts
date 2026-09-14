@@ -35,10 +35,10 @@ export interface Conversation {
   unreadCount: number
 }
 
-/** 消息/授权共用的附件信息：path 为服务器上的真实绝对路径 */
+/** 消息/授权共用的附件信息：path 为服务器上的真实绝对路径；image 类型可直接展示并交给视觉模型 */
 export interface Attachment {
   path: string
-  type: 'file' | 'dir'
+  type: 'file' | 'dir' | 'image'
   name: string
 }
 
@@ -72,7 +72,7 @@ export interface FileListing {
 /** 会话已授权的文件/目录 */
 export interface FileGrant {
   path: string
-  type: 'file' | 'dir'
+  type: 'file' | 'dir' | 'image'
   name: string
   grantedAt: number
 }
@@ -98,4 +98,11 @@ export interface ModelPresetDraft {
 export interface WorkspaceSettings {
   root: string
   extraDirs: string[]
+}
+
+/** 实时语音识别服务：讯飞流式听写的鉴权三参 */
+export interface AsrStreamSettings {
+  appId: string
+  apiKey: string
+  apiSecret: string
 }
