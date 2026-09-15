@@ -50,7 +50,7 @@ export interface Message {
   content: string
   attachments?: Attachment[]
   timestamp: number
-  type: 'text' | 'image' | 'error'
+  type: 'text' | 'error'
 }
 
 /** 服务端文件浏览条目 */
@@ -98,6 +98,19 @@ export interface ModelPresetDraft {
 export interface WorkspaceSettings {
   root: string
   extraDirs: string[]
+}
+
+/** 受控操作审批请求：智能体调用 write_file / edit_file / execute 时弹出卡片等待用户决定 */
+export interface OpRequest {
+  requestId: string
+  conversationId: string
+  opType: 'write' | 'edit' | 'shell'
+  agentId: string
+  agentName: string
+  /** 操作目标：文件路径（shell 命令为 null） */
+  target: string | null
+  /** 操作详情：写入内容 / 修改前后对照 / 命令文本 */
+  detail: string | null
 }
 
 /** 实时语音识别服务：讯飞流式听写的鉴权三参 */

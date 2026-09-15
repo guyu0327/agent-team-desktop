@@ -7,7 +7,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { stopOrchestration } from '@/api/conversation'
-import type { Agent, Attachment, Message } from '@/types'
+import type { Agent, Attachment, Message, OpRequest } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
 import FilePickerModal from '@/components/common/FilePickerModal.vue'
 import ChatMenu from './components/ChatMenu.vue'
@@ -71,6 +71,23 @@ const coordinator = computed(() => {
 })
 
 const discussing = computed(() => conversationStore.isDiscussing(props.id))
+
+const pendingRequests = computed(() => conversationStore.pendingOpRequests(props.id))
+
+const OP_TITLES: Record<OpRequest['opType'], string> = {
+  write: '请求写入文件',
+  edit: '请求修改文件',
+  shell: '请求执行终端命令',
+}
+
+async function decideOp(r: OpRequest, decision: 'once' | 'conversation' | 'deny') {
+  try {
+    const res = await conversationStore.decideOpRequest(props.id, r.requestId, decision)
+    if (!res.applied) alertAction('该请求已失效（等待超时或已被处理）')
+  } catch (err) {
+    alertAction(err instanceof Error ? err.message : '操作失败')
+  }
+}
 
 const configTip = computed(() => {
   const agent = singleAgent.value
@@ -444,6 +461,24 @@ function onKeydown(e: KeyboardEvent) {
       <router-link :to="`/contact/${singleAgent.id}`" class="link">去配置</router-link>
     </div>
 
+    <div v-if="pendingRequests.length > 0" class="op-requests">
+      <div v-for="r in pendingRequests" :key="r.requestId" class="op-card">
+        <div class="op-head">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linecap="round" />
+          </svg>
+          <span class="op-title">「{{ r.agentName }}」{{ OP_TITLES[r.opType] ?? '请求执行受控操作' }}</span>
+        </div>
+        <div v-if="r.target" class="op-target">{{ r.target }}</div>
+        <pre v-if="r.detail" class="op-detail">{{ r.detail }}</pre>
+        <div class="op-actions">
+          <button class="op-btn deny" @click="decideOp(r, 'deny')">拒绝</button>
+          <button class="op-btn conv" @click="decideOp(r, 'conversation')">本会话允许</button>
+          <button class="op-btn once" @click="decideOp(r, 'once')">允许一次</button>
+        </div>
+      </div>
+    </div>
+
     <footer class="input-area">
       <div v-if="mentionCandidates.length > 0" class="mention-popup">
         <div class="mention-title">选择要 @ 的成员</div>
@@ -691,6 +726,113 @@ function onKeydown(e: KeyboardEvent) {
   50% {
     opacity: 1;
     transform: scale(1.1);
+  }
+}
+
+.op-requests {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  border-top: 1px solid rgba(250, 157, 59, 0.25);
+  background: rgba(250, 157, 59, 0.08);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.op-card {
+  border: 1px solid rgba(250, 157, 59, 0.35);
+  border-radius: $radius-md;
+  background: $bg-panel;
+  padding: $spacing-sm $spacing-md;
+
+  .op-head {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    color: #fa9d3b;
+
+    svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    .op-title {
+      font-size: $font-size-sm;
+      font-weight: 600;
+      color: $text-primary;
+    }
+  }
+
+  .op-target {
+    margin-top: $spacing-xs;
+    font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
+    font-size: $font-size-xs;
+    color: $text-secondary;
+    word-break: break-all;
+  }
+
+  .op-detail {
+    margin: $spacing-xs 0 0;
+    padding: $spacing-sm;
+    border-radius: $radius-sm;
+    background: $bg-input;
+    border: 1px solid $border-color;
+    font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
+    font-size: $font-size-xs;
+    line-height: 1.5;
+    color: $text-secondary;
+    max-height: 140px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .op-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: $spacing-sm;
+    margin-top: $spacing-sm;
+  }
+}
+
+.op-btn {
+  padding: 4px $spacing-lg;
+  border-radius: $radius-sm;
+  font-size: $font-size-sm;
+  cursor: pointer;
+  border: 1px solid $border-color;
+  transition: all $transition-fast;
+
+  &.once {
+    background: $primary-color;
+    border-color: $primary-color;
+    color: $text-white;
+
+    &:hover {
+      background: $primary-hover;
+    }
+  }
+
+  &.conv {
+    background: $bg-input;
+    color: $text-primary;
+
+    &:hover {
+      background: $bg-hover;
+    }
+  }
+
+  &.deny {
+    background: $bg-input;
+    color: #fa5151;
+    border-color: rgba(250, 81, 81, 0.4);
+
+    &:hover {
+      background: rgba(250, 81, 81, 0.08);
+    }
   }
 }
 

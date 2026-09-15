@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { Attachment, Conversation, Message } from '@/types'
+import type { Attachment, Conversation, Message, OpRequest } from '@/types'
 import {
   addMembers,
   createGroup as apiCreateGroup,
   createSingle,
+  decideOperation,
   deleteConversation,
   listConversations,
   listMessages,
@@ -29,6 +30,8 @@ export const useConversationStore = defineStore('conversation', () => {
   const orchestratingByConv = ref<Record<string, string>>({})
   /** 会话 -> 是否正在自由讨论接龙 */
   const discussingByConv = ref<Record<string, boolean>>({})
+  /** 会话 -> 待用户决定的受控操作审批请求（智能体调用 write/edit/execute 时产生） */
+  const opRequestsByConv = ref<Record<string, OpRequest[]>>({})
 
   /** 同一会话的发送串行化，避免两次发送的回复流交错 */
   const sendQueue = new Map<string, Promise<void>>()
@@ -56,6 +59,26 @@ export const useConversationStore = defineStore('conversation', () => {
 
   function isDiscussing(conversationId: string): boolean {
     return !!discussingByConv.value[conversationId]
+  }
+
+  function pendingOpRequests(conversationId: string): OpRequest[] {
+    return opRequestsByConv.value[conversationId] ?? []
+  }
+
+  function onOpRequest(e: OpRequest) {
+    const list = opRequestsByConv.value[e.conversationId] ?? []
+    if (!list.some((r) => r.requestId === e.requestId)) list.push(e)
+    opRequestsByConv.value[e.conversationId] = list
+  }
+
+  /** 审批卡片决定；请求已超时失效时后端返回 applied=false，同样移除卡片 */
+  async function decideOpRequest(conversationId: string, requestId: string, decision: 'once' | 'conversation' | 'deny') {
+    try {
+      return await decideOperation(conversationId, requestId, decision)
+    } finally {
+      const list = opRequestsByConv.value[conversationId]
+      if (list) opRequestsByConv.value[conversationId] = list.filter((r) => r.requestId !== requestId)
+    }
   }
 
   function findConv(id: string): Conversation | undefined {
@@ -177,6 +200,7 @@ export const useConversationStore = defineStore('conversation', () => {
         onDiscussionEnd: (e) => {
           delete discussingByConv.value[e.conversationId]
         },
+        onOpRequest: (e) => onOpRequest(e),
       }, attachments)
     } finally {
       for (const cid of typingCids) typingByConv.value[cid] = false
@@ -209,6 +233,7 @@ export const useConversationStore = defineStore('conversation', () => {
   async function resetConversation(conversationId: string) {
     await resetMessages(conversationId)
     messagesMap.value[conversationId] = []
+    delete opRequestsByConv.value[conversationId]
     const conv = findConv(conversationId)
     if (conv) {
       conv.lastMessage = ''
@@ -221,6 +246,7 @@ export const useConversationStore = defineStore('conversation', () => {
     await deleteConversation(conversationId)
     conversations.value = conversations.value.filter((c) => c.id !== conversationId)
     delete messagesMap.value[conversationId]
+    delete opRequestsByConv.value[conversationId]
     if (activeId.value === conversationId) activeId.value = null
   }
 
@@ -294,6 +320,9 @@ export const useConversationStore = defineStore('conversation', () => {
     isCoordinating,
     discussingByConv,
     isDiscussing,
+    opRequestsByConv,
+    pendingOpRequests,
+    decideOpRequest,
     loadConversations,
     setActive,
     sendMessage,

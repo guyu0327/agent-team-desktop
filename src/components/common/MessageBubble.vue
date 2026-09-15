@@ -58,7 +58,6 @@ function viewImage(path: string) {
         <div v-if="typing && !message.content" class="typing">
           <span></span><span></span><span></span>
         </div>
-        <div v-else-if="message.type === 'image'" class="image-placeholder">[图片]</div>
         <span v-else-if="self || message.type === 'error'" class="plain">{{ message.content }}</span>
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else class="md" v-html="rendered"></div>
@@ -370,20 +369,4 @@ function viewImage(path: string) {
   }
 }
 
-.image-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 120px;
-  height: 80px;
-  border-radius: $radius-sm;
-  background: rgba(255, 255, 255, 0.08);
-  color: $text-secondary;
-  font-size: $font-size-sm;
-}
-
-.self .image-placeholder {
-  background: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.85);
-}
 </style>

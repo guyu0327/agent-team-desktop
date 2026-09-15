@@ -11,10 +11,6 @@ export function listFileGrants(conversationId: string): Promise<FileGrant[]> {
   return request(`/conversations/${conversationId}/files`)
 }
 
-export function grantFiles(conversationId: string, paths: string[]): Promise<FileGrant[]> {
-  return request(`/conversations/${conversationId}/files`, { method: 'POST', body: { paths } })
-}
-
 export function revokeFile(conversationId: string, path: string): Promise<{ deleted: boolean }> {
   return request(`/conversations/${conversationId}/files?path=${encodeURIComponent(path)}`, {
     method: 'DELETE',

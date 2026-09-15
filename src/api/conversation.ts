@@ -1,4 +1,4 @@
-import type { Attachment, Conversation, Message } from '@/types'
+import type { Attachment, Conversation, Message, OpRequest } from '@/types'
 import { request } from './http'
 
 export interface MessagePage {
@@ -58,6 +58,15 @@ export function stopOrchestration(id: string): Promise<{ stopped: boolean }> {
   return request(`/conversations/${id}/stop`, { method: 'POST', body: {} })
 }
 
+/** 审批卡片决定受控操作：decision = once（允许一次）| conversation（本会话允许）| deny（拒绝） */
+export function decideOperation(
+  id: string,
+  requestId: string,
+  decision: 'once' | 'conversation' | 'deny',
+): Promise<{ applied: boolean }> {
+  return request(`/conversations/${id}/op-grant`, { method: 'POST', body: { requestId, decision } })
+}
+
 export function listMessages(id: string, before?: number, limit = 50): Promise<MessagePage> {
   const query = before !== undefined ? `?before=${before}&limit=${limit}` : `?limit=${limit}`
   return request(`/conversations/${id}/messages${query}`)
@@ -78,6 +87,8 @@ export interface SendStreamHandlers {
   /** 自由讨论接龙开始/结束（会话级状态） */
   onDiscussionStart?(e: { conversationId: string }): void
   onDiscussionEnd?(e: { conversationId: string }): void
+  /** 受控操作审批请求（写入/修改/执行命令时触发，智能体原地等待决定） */
+  onOpRequest?(e: OpRequest): void
   onDone?(): void
 }
 
@@ -177,6 +188,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
       break
     case 'discussion_end':
       handlers.onDiscussionEnd?.(payload)
+      break
+    case 'op_request':
+      handlers.onOpRequest?.(payload as OpRequest)
       break
     case 'done':
       handlers.onDone?.()
