@@ -2,23 +2,55 @@
 import { onMounted, ref } from 'vue'
 import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
 import { getAsrStreamSettings, updateAsrStreamSettings } from '@/api/asr'
-import FilePickerModal from '@/components/common/FilePickerModal.vue'
+import { desktop } from '@/api/desktop'
 import { confirmAction } from '@/composables/confirm'
-import type { Attachment } from '@/types'
 
 const root = ref('')
 const extraDirsText = ref('')
 const saving = ref(false)
 const resetting = ref(false)
 const feedback = ref<{ ok: boolean; text: string } | null>(null)
-/** 当前打开的目录选择器用途：主工作区 / 白名单 */
-const pickerTarget = ref<'root' | 'extra' | null>(null)
 
 const streamAppId = ref('')
 const streamApiKey = ref('')
 const streamApiSecret = ref('')
 const streamSaving = ref(false)
 const streamFeedback = ref<{ ok: boolean; text: string } | null>(null)
+
+const backupBusy = ref(false)
+const restoreBusy = ref(false)
+const backupFeedback = ref<{ ok: boolean; text: string } | null>(null)
+
+async function exportBackup() {
+  if (backupBusy.value) return
+  backupBusy.value = true
+  backupFeedback.value = null
+  try {
+    const r = await desktop.exportBackup()
+    if (r.ok) backupFeedback.value = { ok: true, text: `已备份到 ${r.dir}` }
+    else if (!r.canceled) backupFeedback.value = { ok: false, text: r.error || '备份失败' }
+  } catch (e) {
+    backupFeedback.value = { ok: false, text: e instanceof Error ? e.message : '备份失败' }
+  } finally {
+    backupBusy.value = false
+  }
+}
+
+/** 恢复成功时应用会整体重启，无需展示反馈 */
+async function importBackup() {
+  if (restoreBusy.value) return
+  restoreBusy.value = true
+  backupFeedback.value = null
+  try {
+    const r = await desktop.importBackup()
+    if (r.ok) return
+    if (!r.canceled) backupFeedback.value = { ok: false, text: r.error || '恢复失败' }
+  } catch (e) {
+    backupFeedback.value = { ok: false, text: e instanceof Error ? e.message : '恢复失败' }
+  } finally {
+    restoreBusy.value = false
+  }
+}
 
 onMounted(async () => {
   try {
@@ -81,20 +113,25 @@ async function reset() {
   }
 }
 
-function pickDir(att: Attachment) {
-  const target = pickerTarget.value
-  pickerTarget.value = null
-  if (target === 'root') {
-    root.value = att.path
-  } else if (target === 'extra') {
-    const lines = extraDirsText.value
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-    if (!lines.includes(att.path)) {
-      lines.push(att.path)
-      extraDirsText.value = lines.join('\n')
-    }
+/** 浏览按钮：调用系统资源管理器选择目录 */
+async function browseRoot() {
+  const dir = await desktop.pickDirectory({
+    title: '选择主工作区目录',
+    defaultPath: root.value.trim() || undefined,
+  })
+  if (dir) root.value = dir
+}
+
+async function addExtraDir() {
+  const dir = await desktop.pickDirectory({ title: '添加白名单目录' })
+  if (!dir) return
+  const lines = extraDirsText.value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  if (!lines.includes(dir)) {
+    lines.push(dir)
+    extraDirsText.value = lines.join('\n')
   }
 }
 
@@ -132,13 +169,13 @@ async function saveAsrStream() {
 
       <section class="section">
         <h3 class="section-title">文件沙箱</h3>
-        <p class="hint">智能体只能读写下列目录内的文件。主工作区可用相对路径（相对后端运行目录）；白名单目录必须是绝对路径，每行一个。可点击「浏览」在服务器目录中直接选择。</p>
+        <p class="hint">智能体只能读写下列目录内的文件。白名单目录必须是绝对路径，每行一个。点击「浏览」直接调用系统资源管理器选择。</p>
 
         <div class="field">
           <label class="label">主工作区目录</label>
           <div class="input-row">
-            <input v-model="root" class="input" type="text" spellcheck="false" placeholder="如 ./workspace 或 D:\agent-workspace" />
-            <button class="browse-btn" @click="pickerTarget = 'root'">浏览</button>
+            <input v-model="root" class="input" type="text" spellcheck="false" placeholder="如 D:\agent-workspace" />
+            <button class="browse-btn" @click="browseRoot">浏览</button>
           </div>
         </div>
 
@@ -151,7 +188,7 @@ async function saveAsrStream() {
             spellcheck="false"
             placeholder="如 D:\Git\my-project"
           ></textarea>
-          <button class="browse-btn add-dir" @click="pickerTarget = 'extra'">＋ 添加白名单目录</button>
+          <button class="browse-btn add-dir" @click="addExtraDir">＋ 添加白名单目录</button>
         </div>
 
         <p v-if="feedback" class="feedback" :class="feedback.ok ? 'ok' : 'err'">{{ feedback.text }}</p>
@@ -187,15 +224,20 @@ async function saveAsrStream() {
           <button class="save-btn" :disabled="streamSaving" @click="saveAsrStream">{{ streamSaving ? '保存中…' : '保存' }}</button>
         </div>
       </section>
-    </div>
 
-    <FilePickerModal
-      v-if="pickerTarget"
-      mode="dir"
-      :title="pickerTarget === 'root' ? '选择主工作区目录' : '添加白名单目录'"
-      @select="pickDir"
-      @close="pickerTarget = null"
-    />
+      <section class="section">
+        <h3 class="section-title">数据管理</h3>
+        <p class="hint">备份包含数据库与工作区文件，保存到您选择的文件夹。恢复会用所选备份覆盖当前全部数据，完成后应用自动重启。</p>
+
+        <p v-if="backupFeedback" class="feedback" :class="backupFeedback.ok ? 'ok' : 'err'">{{ backupFeedback.text }}</p>
+
+        <div class="actions actions-start">
+          <button class="reset-btn" :disabled="backupBusy || restoreBusy" @click="exportBackup">{{ backupBusy ? '导出中…' : '导出备份' }}</button>
+          <button class="reset-btn" :disabled="backupBusy || restoreBusy" @click="importBackup">{{ restoreBusy ? '恢复中…' : '从备份恢复' }}</button>
+          <button class="reset-btn" @click="desktop.openDataDir()">打开数据目录</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -329,6 +371,10 @@ async function saveAsrStream() {
   display: flex;
   justify-content: flex-end;
   gap: $spacing-md;
+
+  &.actions-start {
+    justify-content: flex-start;
+  }
 }
 
 .reset-btn {

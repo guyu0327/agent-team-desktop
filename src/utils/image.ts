@@ -1,3 +1,5 @@
+import { API_TOKEN, apiUrl } from '@/api/base'
+
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']
 
 export function isImagePath(path: string): boolean {
@@ -6,7 +8,8 @@ export function isImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.includes(path.slice(dot + 1).toLowerCase())
 }
 
-/** 气泡/缩略图展示服务端图片的地址 */
+/** 气泡/缩略图展示服务端图片的地址（<img> 无法携带请求头，令牌走查询参数） */
 export function fsContentUrl(path: string): string {
-  return `/api/fs/content?path=${encodeURIComponent(path)}`
+  const url = apiUrl(`/api/fs/content?path=${encodeURIComponent(path)}`)
+  return API_TOKEN ? `${url}&token=${encodeURIComponent(API_TOKEN)}` : url
 }

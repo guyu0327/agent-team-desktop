@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { apiWsUrl } from '@/api/base'
 import { getAsrStreamSettings } from '@/api/asr'
 
 export type RealtimePhase = 'idle' | 'connecting' | 'streaming'
@@ -199,8 +200,7 @@ export function useRealtimeVoice() {
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       })
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.host}/api/asr/stream`)
+      ws = new WebSocket(apiWsUrl('/api/asr/stream'))
       ws.binaryType = 'arraybuffer'
       ws.onmessage = handleMessage
       ws.onclose = () => {

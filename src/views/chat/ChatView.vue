@@ -9,11 +9,12 @@ import { alertAction, confirmAction } from '@/composables/confirm'
 import { stopOrchestration } from '@/api/conversation'
 import type { Agent, Attachment, Message, OpRequest } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
-import FilePickerModal from '@/components/common/FilePickerModal.vue'
+import FileGrantsPopover from '@/components/common/FileGrantsPopover.vue'
 import ChatMenu from './components/ChatMenu.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import { formatDividerTime } from '@/utils/time'
-import { fsContentUrl } from '@/utils/image'
+import { fsContentUrl, isImagePath } from '@/utils/image'
+import { desktop, pathBasename } from '@/api/desktop'
 import { useRealtimeVoice } from '@/composables/realtimeVoice'
 
 const props = defineProps<{ id: string }>()
@@ -31,7 +32,7 @@ const draft = ref('')
 const listRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
 const menuOpen = ref(false)
-const showFilePicker = ref(false)
+const showGrants = ref(false)
 const pendingAttachments = ref<Attachment[]>([])
 
 // @ 成员自动补全：start 为草稿中 @ 的下标，query 为 @ 后到光标间的文本
@@ -334,9 +335,34 @@ async function handleSend() {
   }
 }
 
-function addAttachment(att: Attachment) {
-  if (pendingAttachments.value.some((a) => a.path === att.path)) return
-  pendingAttachments.value = [...pendingAttachments.value, att]
+/** 原生对话框选中的路径加入附件；文件按扩展名识别图片 */
+function addPaths(paths: string[], type: 'file' | 'dir') {
+  const fresh: Attachment[] = paths
+    .filter((p) => !pendingAttachments.value.some((a) => a.path === p))
+    .map((p) => ({
+      path: p,
+      type: type === 'dir' ? 'dir' : isImagePath(p) ? 'image' : 'file',
+      name: pathBasename(p),
+    }))
+  pendingAttachments.value = [...pendingAttachments.value, ...fresh]
+}
+
+async function pickFiles() {
+  try {
+    const paths = await desktop.pickFiles({ title: '选择文件', multi: true })
+    if (paths) addPaths(paths, 'file')
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : '选择文件失败')
+  }
+}
+
+async function pickFolder() {
+  try {
+    const dir = await desktop.pickDirectory({ title: '选择文件夹' })
+    if (dir) addPaths([dir], 'dir')
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : '选择文件夹失败')
+  }
 }
 
 function removeAttachment(path: string) {
@@ -519,9 +545,20 @@ function onKeydown(e: KeyboardEvent) {
       </div>
       <div v-else-if="rtPhase === 'connecting'" class="voice-status">实时识别连接中…</div>
       <div class="toolbar">
-        <span class="tool" title="发送文件" @click="showFilePicker = true">
+        <span class="tool" title="发送文件" @click="pickFiles">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5" />
+          </svg>
+        </span>
+        <span class="tool" title="发送文件夹" @click="pickFolder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          </svg>
+        </span>
+        <span class="tool" title="会话文件授权" @click="showGrants = !showGrants">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" />
+            <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </span>
         <span
@@ -553,14 +590,9 @@ function onKeydown(e: KeyboardEvent) {
           发送
         </button>
       </div>
-    </footer>
 
-    <FilePickerModal
-      v-if="showFilePicker"
-      :conversation-id="props.id"
-      @select="addAttachment"
-      @close="showFilePicker = false"
-    />
+      <FileGrantsPopover v-if="showGrants" :conversation-id="props.id" @close="showGrants = false" />
+    </footer>
   </div>
 </template>
 

@@ -3,6 +3,8 @@ import { defineConfig } from 'vite'
 import { resolve } from 'path'
 
 export default defineConfig({
+  // 相对资源路径：Electron 桌面壳以 file:// 加载构建产物
+  base: './',
   plugins: [vue()],
   resolve: {
     alias: {

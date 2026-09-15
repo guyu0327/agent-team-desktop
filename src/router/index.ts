@@ -1,7 +1,10 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory, createWebHistory } from 'vue-router'
+
+// Electron 桌面壳从 file:// 加载，history 模式不可用，自动切换 hash 模式；网页部署不受影响
+const isFileProtocol = typeof location !== 'undefined' && location.protocol === 'file:'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: isFileProtocol ? createWebHashHistory() : createWebHistory(),
   routes: [
     {
       path: '/',

@@ -53,22 +53,6 @@ export interface Message {
   type: 'text' | 'error'
 }
 
-/** 服务端文件浏览条目 */
-export interface FileEntry {
-  name: string
-  path: string
-  directory: boolean
-  size?: number | null
-}
-
-export interface FileListing {
-  path: string
-  name: string
-  parent: string | null
-  truncated: boolean
-  items: FileEntry[]
-}
-
 /** 会话已授权的文件/目录 */
 export interface FileGrant {
   path: string

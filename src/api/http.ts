@@ -1,3 +1,5 @@
+import { apiHeaders, apiUrl } from './base'
+
 export class ApiError extends Error {
   status: number
 
@@ -15,9 +17,9 @@ interface RequestOptions {
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   let res: Response
   try {
-    res = await fetch(`/api${path}`, {
+    res = await fetch(apiUrl(`/api${path}`), {
       method: options.method ?? 'GET',
-      headers: options.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers: apiHeaders(options.body !== undefined ? { 'Content-Type': 'application/json' } : undefined),
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     })
   } catch {

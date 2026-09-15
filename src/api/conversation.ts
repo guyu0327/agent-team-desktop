@@ -1,4 +1,5 @@
 import type { Attachment, Conversation, Message, OpRequest } from '@/types'
+import { apiHeaders, apiUrl } from './base'
 import { request } from './http'
 
 export interface MessagePage {
@@ -107,9 +108,9 @@ export async function sendMessageStream(
   handlers: SendStreamHandlers,
   attachments: Attachment[] = [],
 ): Promise<void> {
-  const res = await fetch(`/api/conversations/${conversationId}/messages`, {
+  const res = await fetch(apiUrl(`/api/conversations/${conversationId}/messages`), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ content, attachments: attachments.map((a) => ({ path: a.path })) }),
   })
   if (!res.ok || !res.body) {
