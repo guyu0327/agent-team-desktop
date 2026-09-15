@@ -1,0 +1,27 @@
+appId: com.guyu.agentteam.desktop
+productName: AgentTeam
+directories:
+  output: dist
+# 只打包壳代码；resources/ 下的 jar、JRE、前端产物经 extraResources 放到安装目录
+files:
+  - main.js
+  - preload.js
+  - boot.html
+  - package.json
+extraResources:
+  - from: resources/server
+    to: server
+  - from: resources/web
+    to: web
+  - from: resources/jre
+    to: jre
+win:
+  # 无代码签名证书，跳过签名
+  signAndEditExecutable: false
+nsis:
+  # 向导式安装：用户可选安装位置（仍为按用户安装，不需要管理员权限）
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  artifactName: ${name}-setup-${version}.${ext}

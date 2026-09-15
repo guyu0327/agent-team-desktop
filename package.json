@@ -1,0 +1,19 @@
+{
+  "name": "agent-team-desktop",
+  "version": "1.0.0",
+  "description": "智群 AgentTeam 桌面客户端",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist:dir": "electron-builder --win --dir",
+    "dist": "electron-builder --win",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "guyu",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  }
+}
