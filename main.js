@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -19,6 +19,10 @@ let backend = null
 let backendPort = null
 let backendToken = null
 let quitting = false
+// 前端界面是否已就绪（就绪后关闭按钮由前端弹应用内确认框）
+let closeUiReady = false
+/** @type {import('electron').Tray | null} */
+let tray = null
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -88,6 +92,34 @@ async function startBackend() {
   }
 }
 
+/** 显示并聚焦主窗口（从任务栏恢复 / 从托盘唤回共用） */
+function showMain(win) {
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+/** 系统托盘：左键唤回主窗口，右键菜单（显示/退出）。Windows 上 setContextMenu 会让左键也弹菜单，故分开处理 */
+function createTray(win) {
+  // 图标唯一来源是 build/icon.ico：开发态直接读源文件，打包态经 extraResources 复制到安装目录 resources
+  const trayIcon = app.isPackaged ? path.join(RESOURCE_ROOT, 'icon.ico') : path.join(__dirname, 'build', 'icon.ico')
+  tray = new Tray(trayIcon)
+  tray.setToolTip('智群 AgentTeam')
+  const menu = Menu.buildFromTemplate([
+    { label: '显示主窗口', click: () => showMain(win) },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        quitting = true
+        app.quit()
+      },
+    },
+  ])
+  tray.on('click', () => showMain(win))
+  tray.on('right-click', () => tray.popUpContextMenu(menu))
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -95,6 +127,8 @@ function createWindow() {
     autoHideMenuBar: true,
     title: '智群 AgentTeam',
     show: false,
+    // 开发模式的窗口/任务栏图标；打包后任务栏图标随 exe 资源
+    icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       additionalArguments: backendPort
@@ -111,6 +145,25 @@ function createWindow() {
     win.loadFile(path.join(__dirname, 'boot.html'))
     win.show()
   }
+
+  // 外部链接（如模型控制台）一律交给系统默认浏览器，不在应用内开新窗口
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  // 点关闭按钮先询问：界面就绪后交给前端弹应用内样式的确认框；引导页阶段（后端启动中）直接退出
+  win.on('close', (e) => {
+    if (quitting) return
+    e.preventDefault()
+    if (closeUiReady && !win.webContents.isCrashed()) {
+      win.webContents.send('app:close-request')
+    } else {
+      quitting = true
+      app.quit()
+    }
+  })
+  createTray(win)
   return win
 }
 
@@ -231,15 +284,28 @@ ipcMain.handle('dialog:pick', async (_e, opts) => {
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths
 })
 
+// ---------- 关闭确认（应用内样式弹窗，由渲染进程绘制与响应） ----------
+
+ipcMain.on('app:close-ui-ready', () => {
+  closeUiReady = true
+})
+
+ipcMain.on('app:close-choice', (_e, choice) => {
+  const [win] = BrowserWindow.getAllWindows()
+  if (choice === 'minimize') {
+    if (win) win.hide()
+  } else {
+    quitting = true
+    app.quit()
+  }
+})
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
     const [win] = BrowserWindow.getAllWindows()
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
+    if (win) showMain(win)
   })
 
   app.whenReady().then(async () => {

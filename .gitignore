@@ -11,6 +11,8 @@ resources/server/*
 resources/web/*
 !resources/web/.gitkeep
 resources/jre/
+# 托盘图标以 build/icon.ico 为唯一来源（开发态直接读 build/，打包态经 extraResources 复制）
+resources/icon.ico
 
 # 日志
 *.log

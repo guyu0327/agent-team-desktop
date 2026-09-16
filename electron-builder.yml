@@ -8,6 +8,7 @@ files:
   - preload.js
   - boot.html
   - package.json
+  - build/icon.png
 extraResources:
   - from: resources/server
     to: server
@@ -15,9 +16,9 @@ extraResources:
     to: web
   - from: resources/jre
     to: jre
-win:
-  # 无代码签名证书，跳过签名
-  signAndEditExecutable: false
+  - from: build/icon.ico
+    to: icon.ico
+# 应用图标来自 build/icon.ico，经 rcedit 写入 exe（无签名证书，不会执行签名步骤）
 nsis:
   # 向导式安装：用户可选安装位置（仍为按用户安装，不需要管理员权限）
   oneClick: false
