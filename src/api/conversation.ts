@@ -90,6 +90,9 @@ export interface SendStreamHandlers {
   onDiscussionEnd?(e: { conversationId: string }): void
   /** 受控操作审批请求（写入/修改/执行命令时触发，智能体原地等待决定） */
   onOpRequest?(e: OpRequest): void
+  /** 文生图开始/结束（generate_image 执行窗口，按会话展示生成动画） */
+  onImageStart?(e: { agentId: string; agentName: string; conversationId: string }): void
+  onImageEnd?(e: { conversationId: string }): void
   onDone?(): void
 }
 
@@ -192,6 +195,12 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
       break
     case 'op_request':
       handlers.onOpRequest?.(payload as OpRequest)
+      break
+    case 'image_start':
+      handlers.onImageStart?.(payload)
+      break
+    case 'image_end':
+      handlers.onImageEnd?.(payload)
       break
     case 'done':
       handlers.onDone?.()

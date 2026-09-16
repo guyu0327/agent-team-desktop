@@ -22,7 +22,7 @@ const metaRows = computed(() => {
   return [
     { label: '模型预设', value: preset ? preset.name : '未关联，聊天前需选择' },
     { label: 'API 地址', value: preset ? preset.baseUrl : '未设置' },
-    { label: 'API Key', value: preset?.apiKey ? '已配置（由预设提供）' : '未配置' },
+    { label: 'API Key', value: preset?.hasKey ? '已配置（由预设提供）' : '未配置' },
     { label: '温度', value: String(agent.value.temperature) },
   ]
 })

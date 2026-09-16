@@ -1,443 +1,331 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
-import type { Agent, ModelPreset, ModelPresetDraft } from '@/types'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import type { ModelPreset } from '@/types'
 import { useModelPresetStore } from '@/stores/modelPreset'
-import { useAgentStore } from '@/stores/agent'
-import { alertAction, confirmAction } from '@/composables/confirm'
-import Avatar from '@/components/common/Avatar.vue'
+import SearchBar from '@/components/common/SearchBar.vue'
+import ConsoleLinksModal from './ConsoleLinksModal.vue'
 
+const route = useRoute()
 const presetStore = useModelPresetStore()
-const agentStore = useAgentStore()
 
-type Mode = { kind: 'idle' } | { kind: 'create' } | { kind: 'edit'; preset: ModelPreset }
+const searchQuery = ref('')
+const showConsole = ref(false)
 
-const mode = ref<Mode>({ kind: 'idle' })
-const saving = ref(false)
-const formError = ref('')
+const COLLAPSE_KEY = 'models-collapsed-groups'
 
-const editingPreset = computed(() => (mode.value.kind === 'edit' ? mode.value.preset : null))
+function loadCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY)
+    return new Set(raw ? (JSON.parse(raw) as string[]) : [])
+  } catch {
+    return new Set()
+  }
+}
 
-const form = reactive<ModelPresetDraft & { apiKey: string }>({
-  name: '',
-  baseUrl: '',
-  apiKey: '',
-  remark: '',
+const collapsed = ref<Set<string>>(loadCollapsed())
+
+function toggleGroup(name: string) {
+  const next = new Set(collapsed.value)
+  if (next.has(name)) {
+    next.delete(name)
+  } else {
+    next.add(name)
+  }
+  collapsed.value = next
+  localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]))
+}
+
+const filteredPresets = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return presetStore.presets
+  return presetStore.presets.filter((p) => {
+    const remark = (p.remark ?? '').toLowerCase()
+    return p.name.toLowerCase().includes(q) || p.baseUrl.toLowerCase().includes(q) || remark.includes(q)
+  })
 })
 
-function startCreate() {
-  mode.value = { kind: 'create' }
-  form.name = ''
-  form.baseUrl = ''
-  form.apiKey = ''
-  form.remark = ''
-  formError.value = ''
+interface PresetGroup {
+  name: string
+  presets: ModelPreset[]
 }
 
-function startEdit(preset: ModelPreset) {
-  mode.value = { kind: 'edit', preset }
-  form.name = preset.name
-  form.baseUrl = preset.baseUrl
-  form.apiKey = ''
-  form.remark = preset.remark
-  formError.value = ''
-}
+const groups = computed<PresetGroup[]>(() => {
+  const chat = filteredPresets.value.filter((p) => p.protocol === 'openai-chat')
+  const image = filteredPresets.value.filter((p) => p.protocol !== 'openai-chat')
+  const result: PresetGroup[] = []
+  if (chat.length > 0) result.push({ name: '对话预设', presets: chat })
+  if (image.length > 0) result.push({ name: '文生图预设', presets: image })
+  return result
+})
 
-function cancelForm() {
-  mode.value = { kind: 'idle' }
-  formError.value = ''
-}
+const searching = computed(() => searchQuery.value.trim().length > 0)
 
-function validate(): string {
-  if (!form.name.trim()) return '请填写模型名称'
-  if (!form.baseUrl.trim()) return '请填写 API 地址'
-  return ''
-}
-
-async function save() {
-  const err = validate()
-  if (err) {
-    formError.value = err
-    return
-  }
-  saving.value = true
-  formError.value = ''
-  try {
-    if (mode.value.kind === 'edit') {
-      await presetStore.updatePresetById(mode.value.preset.id, { ...form })
-    } else {
-      await presetStore.addPreset({ ...form })
-    }
-    mode.value = { kind: 'idle' }
-  } catch (e) {
-    formError.value = e instanceof Error ? e.message : '保存失败，请稍后再试'
-  } finally {
-    saving.value = false
-  }
-}
-
-async function remove(preset: ModelPreset) {
-  const ok = await confirmAction({
-    title: '删除模型预设',
-    message: `确定删除模型预设「${preset.name}」吗？`,
-    confirmText: '删除',
-    danger: true,
-  })
-  if (!ok) return
-  try {
-    if (mode.value.kind === 'edit' && mode.value.preset.id === preset.id) {
-      mode.value = { kind: 'idle' }
-    }
-    await presetStore.removePreset(preset.id)
-  } catch (e) {
-    alertAction(e instanceof Error ? e.message : '删除失败，请稍后再试')
-  }
-}
-
-function maskKey(key: string): string {
-  if (!key) return '未配置'
-  if (key.length <= 8) return '••••••'
-  return `${key.slice(0, 4)}••••${key.slice(-4)}`
-}
-
-function agentsUsing(preset: ModelPreset): Agent[] {
-  return agentStore.agents.filter((a) => a.presetId === preset.id)
-}
+const activeId = computed(() =>
+  route.name === 'PresetDetail' || route.name === 'PresetEdit' ? (route.params.id as string) : null,
+)
 </script>
 
 <template>
-  <div class="models-view">
-    <header class="view-header">
-      <h2 class="title">模型预设</h2>
-      <button v-if="mode.kind === 'idle'" class="btn primary" @click="startCreate">新建预设</button>
-    </header>
-
-    <div class="view-body">
-      <div v-if="mode.kind !== 'idle'" class="form-card">
-        <h3 class="form-title">{{ editingPreset ? `编辑预设：${editingPreset.name}` : '新建模型预设' }}</h3>
-
-        <div class="field">
-          <label class="label required">模型名称</label>
-          <input v-model="form.name" class="input" placeholder="如：deepseek-chat，新建智能体时按名称匹配" />
-        </div>
-
-        <div class="field">
-          <label class="label required">API 地址</label>
-          <input v-model="form.baseUrl" class="input" placeholder="如 https://api.deepseek.com/v1" />
-        </div>
-
-        <div class="field">
-          <label class="label">API Key</label>
-          <input
-            v-model="form.apiKey"
-            class="input"
-            type="password"
-            :placeholder="editingPreset ? `当前：${maskKey(editingPreset.apiKey)}，留空表示不修改` : '保存在服务器数据库'"
-            autocomplete="off"
-          />
-        </div>
-
-        <div class="field">
-          <label class="label">备注</label>
-          <input v-model="form.remark" class="input" maxlength="50" placeholder="可选，如：公司主账号" />
-        </div>
-
-        <p v-if="formError" class="error">{{ formError }}</p>
-
-        <div class="actions">
-          <button class="btn primary" :disabled="saving" @click="save">
-            {{ saving ? '保存中…' : '保存' }}
-          </button>
-          <button class="btn" @click="cancelForm">取消</button>
-        </div>
-      </div>
-
+  <div class="models-module">
+    <aside class="list-panel">
+      <SearchBar v-model="searchQuery" placeholder="搜索模型预设" />
       <div class="preset-list">
-        <div v-for="preset in presetStore.presets" :key="preset.id" class="preset-card" :class="{ editing: mode.kind === 'edit' && mode.preset.id === preset.id }">
-          <div class="preset-main">
-            <div class="preset-head">
-              <span class="preset-name">{{ preset.name }}</span>
-              <span class="preset-key">{{ maskKey(preset.apiKey) }}</span>
-            </div>
-            <div class="preset-url">{{ preset.baseUrl }}</div>
-            <div v-if="preset.remark" class="preset-remark">{{ preset.remark }}</div>
+        <router-link to="/models/add" class="add-link">
+          <div class="add-row" :class="{ active: route.name === 'PresetAdd' }">
+            <span class="add-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </span>
+            <span class="name">新建预设</span>
+          </div>
+        </router-link>
 
-            <div class="preset-usage">
-              <template v-if="agentsUsing(preset).length > 0">
-                <span class="usage-label">使用中：</span>
-                <router-link
-                  v-for="a in agentsUsing(preset)"
-                  :key="a.id"
-                  :to="`/contact/${a.id}/edit`"
-                  class="usage-agent"
-                  :title="`编辑 ${a.name}`"
-                >
-                  <Avatar :name="a.name" :avatar="a.avatar" :size="22" />
-                  <span class="usage-name">{{ a.name }}</span>
-                </router-link>
-              </template>
-              <span v-else class="usage-label">暂无智能体使用</span>
-            </div>
-          </div>
-          <div class="preset-actions">
-            <button class="mini-btn" @click="startEdit(preset)">编辑</button>
-            <button class="mini-btn danger" @click="remove(preset)">删除</button>
-          </div>
+        <div v-for="group in groups" :key="group.name" class="group">
+          <button
+            type="button"
+            class="group-header"
+            :title="searching ? '搜索时不折叠' : undefined"
+            @click="!searching && toggleGroup(group.name)"
+          >
+            <svg class="chevron" :class="{ expanded: searching || !collapsed.has(group.name) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            <span class="group-name">{{ group.name }}</span>
+            <span class="group-count">{{ group.presets.length }}</span>
+          </button>
+
+          <template v-if="searching || !collapsed.has(group.name)">
+            <router-link
+              v-for="preset in group.presets"
+              :key="preset.id"
+              :to="`/models/${preset.id}`"
+              class="preset-link"
+            >
+              <div class="preset-item" :class="{ active: preset.id === activeId }">
+                <span class="preset-icon" :class="{ image: preset.protocol !== 'openai-chat' }">
+                  <svg v-if="preset.protocol === 'openai-chat'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="3" />
+                    <circle cx="9" cy="9" r="2" />
+                    <path d="M21 15l-5-5L5 21" />
+                  </svg>
+                </span>
+                <div class="preset-info">
+                  <span class="name">{{ preset.name }}</span>
+                  <span class="desc">{{ preset.remark || preset.baseUrl }}</span>
+                </div>
+              </div>
+            </router-link>
+          </template>
         </div>
 
-        <div v-if="presetStore.presets.length === 0 && mode.kind === 'idle'" class="empty">
-          还没有模型预设，点击右上角「新建预设」添加
-        </div>
+        <div v-if="groups.length === 0" class="empty">无匹配的模型预设</div>
       </div>
-    </div>
+      <div class="console-entry">
+        <button type="button" class="console-btn" @click="showConsole = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 17l6-6-6-6" />
+            <path d="M12 19h8" />
+          </svg>
+          模型控制台
+        </button>
+      </div>
+    </aside>
+    <section class="content-area">
+      <router-view />
+    </section>
+
+    <ConsoleLinksModal v-if="showConsole" @close="showConsole = false" />
   </div>
 </template>
 
 <style scoped lang="scss">
-.models-view {
-  flex: 1;
-  min-height: 0;
+.models-module {
   display: flex;
-  flex-direction: column;
-}
-
-.view-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: $spacing-lg $spacing-xxl;
-  border-bottom: 1px solid $border-color;
-}
-
-.title {
-  font-size: $font-size-lg;
-  font-weight: 600;
-  color: $text-primary;
-}
-
-.view-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: $spacing-xxl;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: $spacing-xl;
-}
-
-.form-card {
-  width: 520px;
-  background: $bg-panel;
-  border-radius: $radius-lg;
-  padding: $spacing-xxl;
-  box-shadow: $shadow-md;
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-lg;
-}
-
-.form-title {
-  font-size: $font-size-base;
-  font-weight: 600;
-  color: $text-primary;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-sm;
-}
-
-.label {
-  font-size: $font-size-sm;
-  color: $text-secondary;
-
-  &.required::after {
-    content: ' *';
-    color: #fa5151;
-  }
-}
-
-.input {
+  height: 100%;
   width: 100%;
-  padding: 9px $spacing-md;
-  border-radius: $radius-sm;
-  background: $bg-input;
-  color: $text-primary;
-  font-size: $font-size-base;
-
-  &::placeholder {
-    color: $text-tertiary;
-  }
-
-  &:focus {
-    outline: 1px solid $primary-color;
-  }
 }
 
-.error {
-  font-size: $font-size-xs;
-  color: #fa5151;
-}
-
-.actions {
+.list-panel {
+  width: $panel-width;
+  flex-shrink: 0;
+  background: $bg-panel;
+  border-right: 1px solid $border-color;
   display: flex;
-  justify-content: flex-end;
-  gap: $spacing-md;
-  padding-top: $spacing-sm;
-  border-top: 1px solid $border-color;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .preset-list {
-  width: 520px;
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-md;
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: $spacing-sm;
 }
 
-.preset-card {
-  display: flex;
-  align-items: flex-start;
-  gap: $spacing-md;
-  background: $bg-panel;
-  border: 1px solid transparent;
-  border-radius: $radius-lg;
-  padding: $spacing-lg;
+.add-link {
+  display: block;
+  border-bottom: 1px solid $border-light;
+  margin-bottom: $spacing-sm;
+}
 
-  &.editing {
-    border-color: $primary-color;
+.add-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-md;
+  cursor: pointer;
+  transition: background $transition-fast;
+
+  &:hover {
+    background: $bg-panel-hover;
+  }
+
+  &.active {
+    background: $bg-panel-hover;
+  }
+
+  .add-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: $radius-sm;
+    background: $primary-light;
+    color: $primary-color;
+
+    svg {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
+  .name {
+    font-size: $font-size-base;
+    color: $text-primary;
   }
 }
 
-.preset-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.preset-head {
+.group-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: $spacing-md;
-}
+  gap: $spacing-xs;
+  width: 100%;
+  padding: $spacing-sm $spacing-md;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  transition: background $transition-fast;
 
-.preset-name {
-  font-size: $font-size-base;
-  font-weight: 600;
-  color: $text-primary;
-}
+  &:hover {
+    background: $bg-panel-hover;
+  }
 
-.preset-key {
-  font-size: $font-size-xs;
-  color: $text-tertiary;
-  font-family: monospace;
-}
+  .chevron {
+    width: 14px;
+    height: 14px;
+    color: $text-tertiary;
+    transition: transform $transition-fast;
+    flex-shrink: 0;
 
-.preset-url {
-  font-size: $font-size-sm;
-  color: $text-secondary;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+    &.expanded {
+      transform: rotate(90deg);
+    }
+  }
 
-.preset-remark {
-  font-size: $font-size-xs;
-  color: $text-tertiary;
-}
-
-.preset-usage {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: $spacing-sm;
-  margin-top: $spacing-xs;
-  padding-top: $spacing-sm;
-  border-top: 1px solid $border-light;
-
-  .usage-label {
+  .group-name {
     font-size: $font-size-xs;
     color: $text-tertiary;
   }
 
-  .usage-agent {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px $spacing-sm 2px 2px;
-    border-radius: $radius-sm;
-    transition: background $transition-fast;
-
-    &:hover {
-      background: $bg-hover;
-
-      .usage-name {
-        color: $primary-color;
-      }
-    }
-
-    .usage-name {
-      font-size: $font-size-xs;
-      color: $text-secondary;
-    }
+  .group-count {
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+    margin-left: auto;
   }
 }
 
-.preset-actions {
+.preset-link {
+  display: block;
+}
+
+.preset-item {
   display: flex;
-  gap: $spacing-sm;
-  flex-shrink: 0;
-}
-
-.mini-btn {
-  padding: 4px $spacing-md;
-  border-radius: $radius-sm;
-  background: $bg-input;
-  color: $text-secondary;
-  font-size: $font-size-xs;
-  cursor: pointer;
-  transition: background $transition-fast, color $transition-fast;
-
-  &:hover {
-    background: $bg-hover;
-    color: $text-primary;
-  }
-
-  &.danger:hover {
-    background: rgba(250, 81, 81, 0.15);
-    color: #fa5151;
-  }
-}
-
-.btn {
-  padding: 8px $spacing-xxl;
-  border-radius: $radius-sm;
-  background: $bg-input;
-  color: $text-primary;
-  font-size: $font-size-base;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-md;
   cursor: pointer;
   transition: background $transition-fast;
 
-  &:hover:not(:disabled) {
-    background: $bg-hover;
+  &:hover {
+    background: $bg-panel-hover;
   }
 
-  &.primary {
+  &.active {
     background: $primary-color;
-    color: $text-white;
 
-    &:hover:not(:disabled) {
-      background: $primary-hover;
+    .name,
+    .desc {
+      color: $text-white;
+    }
+
+    .preset-icon {
+      background: rgba(255, 255, 255, 0.15);
+      color: $text-white;
+    }
+
+    &:hover {
+      background: $primary-color;
     }
   }
 
-  &:disabled {
+  .preset-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: $radius-sm;
     background: $bg-input;
+    color: $text-secondary;
+    flex-shrink: 0;
+
+    svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    &.image {
+      color: $primary-color;
+      background: rgba($primary-color, 0.12);
+    }
+  }
+
+  .preset-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .name {
+    font-size: $font-size-base;
+    color: $text-primary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .desc {
+    font-size: $font-size-xs;
     color: $text-tertiary;
-    cursor: not-allowed;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
@@ -446,5 +334,42 @@ function agentsUsing(preset: ModelPreset): Agent[] {
   text-align: center;
   color: $text-tertiary;
   font-size: $font-size-sm;
+}
+
+.console-entry {
+  flex-shrink: 0;
+  border-top: 1px solid $border-color;
+  padding: $spacing-sm;
+}
+
+.console-btn {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  width: 100%;
+  padding: 8px $spacing-md;
+  border-radius: $radius-sm;
+  font-size: $font-size-sm;
+  color: $text-secondary;
+  cursor: pointer;
+  transition: background $transition-fast, color $transition-fast;
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    background: $bg-panel-hover;
+    color: $primary-color;
+  }
+}
+
+.content-area {
+  flex: 1;
+  min-width: 0;
+  background: $bg-content;
+  display: flex;
+  flex-direction: column;
 }
 </style>

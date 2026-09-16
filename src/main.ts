@@ -6,7 +6,10 @@ import { useUserStore } from './stores/user'
 import { useAgentStore } from './stores/agent'
 import { useConversationStore } from './stores/conversation'
 import { useModelPresetStore } from './stores/modelPreset'
+import { APP_NAME, APP_VERSION } from './constants/app'
 import './styles/global.scss'
+
+document.title = `${APP_NAME} v${APP_VERSION}`
 
 const app = createApp(App)
 app.use(createPinia())

@@ -10,10 +10,12 @@ import { stopOrchestration } from '@/api/conversation'
 import type { Agent, Attachment, Message, OpRequest } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
 import FileGrantsPopover from '@/components/common/FileGrantsPopover.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
 import ChatMenu from './components/ChatMenu.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import { formatDividerTime } from '@/utils/time'
 import { fsContentUrl, isImagePath } from '@/utils/image'
+import { copyImage, copyText } from '@/utils/clipboard'
 import { desktop, pathBasename } from '@/api/desktop'
 import { useRealtimeVoice } from '@/composables/realtimeVoice'
 
@@ -73,6 +75,37 @@ const coordinator = computed(() => {
 
 const discussing = computed(() => conversationStore.isDiscussing(props.id))
 
+const imageAgentName = computed(() => conversationStore.isGeneratingImage(props.id))
+
+// 消息气泡右键菜单：imgSrc 非空表示右键点在气泡内的图片上，额外提供复制图片
+const msgCtx = ref<{ x: number; y: number; msg: Message; imgSrc: string | null } | null>(null)
+
+function openMsgCtx(e: MouseEvent, msg: Message) {
+  const imgEl = (e.target as HTMLElement | null)?.closest('img') as HTMLImageElement | null
+  msgCtx.value = { x: e.clientX, y: e.clientY, msg, imgSrc: imgEl?.getAttribute('src') ?? null }
+}
+
+const msgCtxItems = computed(() => {
+  if (!msgCtx.value) return []
+  const items = [{ key: 'copy-text', label: '复制文字' }]
+  if (msgCtx.value.imgSrc) items.push({ key: 'copy-image', label: '复制图片' })
+  return items
+})
+
+async function onMsgCtxSelect(key: string) {
+  const ctx = msgCtx.value
+  if (!ctx) return
+  try {
+    if (key === 'copy-text') {
+      await copyText(ctx.msg.content)
+    } else if (key === 'copy-image' && ctx.imgSrc) {
+      await copyImage(ctx.imgSrc)
+    }
+  } catch (err) {
+    alertAction(err instanceof Error ? err.message : '复制失败')
+  }
+}
+
 const pendingRequests = computed(() => conversationStore.pendingOpRequests(props.id))
 
 const OP_TITLES: Record<OpRequest['opType'], string> = {
@@ -95,7 +128,7 @@ const configTip = computed(() => {
   if (!agent) return null
   const preset = agent.presetId ? presetStore.findById(agent.presetId) : undefined
   if (!preset) return `「${agent.name}」还未关联模型预设`
-  if (!preset.baseUrl.trim() || !preset.apiKey.trim()) {
+  if (!preset.baseUrl.trim() || !preset.hasKey) {
     return `「${agent.name}」的模型预设缺少 API 地址或 Key`
   }
   return null
@@ -318,6 +351,8 @@ watch(
   () => scrollToBottom(),
 )
 
+watch(imageAgentName, () => scrollToBottom())
+
 async function handleSend() {
   const content = draft.value.trim()
   const attachments = pendingAttachments.value
@@ -335,16 +370,21 @@ async function handleSend() {
   }
 }
 
-/** 原生对话框选中的路径加入附件；文件按扩展名识别图片 */
-function addPaths(paths: string[], type: 'file' | 'dir') {
-  const fresh: Attachment[] = paths
-    .filter((p) => !pendingAttachments.value.some((a) => a.path === p))
-    .map((p) => ({
-      path: p,
-      type: type === 'dir' ? 'dir' : isImagePath(p) ? 'image' : 'file',
-      name: pathBasename(p),
+/** 路径加入附件：按 path 去重，文件按扩展名识别图片 */
+function addEntries(entries: { path: string; type: 'file' | 'dir' }[]) {
+  const fresh: Attachment[] = entries
+    .filter(({ path }) => !pendingAttachments.value.some((a) => a.path === path))
+    .map(({ path, type }) => ({
+      path,
+      type: type === 'dir' ? 'dir' : isImagePath(path) ? 'image' : 'file',
+      name: pathBasename(path),
     }))
   pendingAttachments.value = [...pendingAttachments.value, ...fresh]
+}
+
+/** 原生对话框选中的路径加入附件 */
+function addPaths(paths: string[], type: 'file' | 'dir') {
+  addEntries(paths.map((path) => ({ path, type })))
 }
 
 async function pickFiles() {
@@ -367,6 +407,51 @@ async function pickFolder() {
 
 function removeAttachment(path: string) {
   pendingAttachments.value = pendingAttachments.value.filter((a) => a.path !== path)
+}
+
+// 拖拽文件/文件夹到输入框添加附件：dragenter/leave 在子元素间成对触发，用计数器抵消
+const dragDepth = ref(0)
+const isDragging = computed(() => dragDepth.value > 0)
+
+function hasFiles(e: DragEvent) {
+  return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+}
+
+function onDragEnter(e: DragEvent) {
+  if (!hasFiles(e)) return
+  dragDepth.value++
+}
+
+function onDragLeave() {
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+
+function onDragOver(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+
+function onDrop(e: DragEvent) {
+  e.preventDefault()
+  dragDepth.value = 0
+  const items = e.dataTransfer?.items
+  if (!items || items.length === 0) return
+  if (!desktop.pathForFile) {
+    alertAction('拖拽添加附件需在桌面客户端中使用')
+    return
+  }
+  // entry 离开本事件即失效，必须同步消费，不得 await
+  const entries: { path: string; type: 'file' | 'dir' }[] = []
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry()
+    const file = items[i].getAsFile()
+    if (!file) continue
+    const path = desktop.pathForFile(file)
+    if (!path) continue
+    entries.push({ path, type: entry?.isDirectory ? 'dir' : 'file' })
+  }
+  if (entries.length > 0) addEntries(entries)
 }
 
 async function handleStopCoordination() {
@@ -460,8 +545,22 @@ function onKeydown(e: KeyboardEvent) {
             :badge="senderBadge(msg)"
             :show-name="conversation?.type === 'group' && !isSelf(msg)"
             :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
+            @contextmenu.prevent="openMsgCtx($event, msg)"
           />
         </template>
+        <ContextMenu
+          v-if="msgCtx"
+          :x="msgCtx.x"
+          :y="msgCtx.y"
+          :items="msgCtxItems"
+          @select="onMsgCtxSelect"
+          @close="msgCtx = null"
+        />
+        <div v-if="imageAgentName" class="image-gen-tip">
+          <span class="ring" />
+          <span class="text">「{{ imageAgentName }}」正在生成图片</span>
+          <span class="dots"><i /><i /><i /></span>
+        </div>
         <div v-if="messages.length === 0" class="empty">暂无消息，开始聊天吧</div>
       </div>
 
@@ -505,7 +604,15 @@ function onKeydown(e: KeyboardEvent) {
       </div>
     </div>
 
-    <footer class="input-area">
+    <footer
+      class="input-area"
+      :class="{ dragging: isDragging }"
+      @dragenter="onDragEnter"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
+    >
+      <div v-if="isDragging" class="drop-hint">松开鼠标，添加为附件</div>
       <div v-if="mentionCandidates.length > 0" class="mention-popup">
         <div class="mention-title">选择要 @ 的成员</div>
         <button
@@ -711,6 +818,74 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+.image-gen-tip {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  width: fit-content;
+  margin: $spacing-sm 0;
+  padding: 8px $spacing-md;
+  border-radius: $radius-md;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+
+  .ring {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 2px solid rgba($primary-color, 0.25);
+    border-top-color: $primary-color;
+    animation: image-gen-spin 0.9s linear infinite;
+  }
+
+  .text {
+    font-size: $font-size-sm;
+    color: $text-secondary;
+  }
+
+  .dots {
+    display: flex;
+    gap: 3px;
+
+    i {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: $text-tertiary;
+      animation: image-gen-blink 1.2s infinite ease-in-out;
+
+      &:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+
+      &:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+    }
+  }
+}
+
+@keyframes image-gen-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes image-gen-blink {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
 .coordination-tip {
   display: flex;
   align-items: center;
@@ -902,6 +1077,26 @@ function onKeydown(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: $spacing-sm;
+
+  &.dragging {
+    outline: 2px dashed $primary-color;
+    outline-offset: -6px;
+    background: rgba($primary-color, 0.06);
+  }
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: $primary-color;
+  font-size: $font-size-sm;
+  background: rgba($bg-panel, 0.85);
+  border-radius: inherit;
 }
 
 .mention-popup {

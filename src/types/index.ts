@@ -13,6 +13,8 @@ export interface Agent {
   groupName: string
   description: string
   presetId: string
+  /** 可选绑定的图像预设（文生图类），绑定的智能体才有 generate_image 生图工具 */
+  imagePresetId: string
   /** 为 true 时聊天中作为团队编排者，协调其他智能体协作 */
   isOrchestrator: boolean
   systemPrompt: string
@@ -61,18 +63,23 @@ export interface FileGrant {
   grantedAt: number
 }
 
-/** 模型预设：apiKey 会返回（供智能体表单只读展示） */
+/** 预设协议类型：openai-chat 对话 / dashscope-image、openai-image、siliconflow-image 文生图 */
+export type ModelPresetProtocol = 'openai-chat' | 'dashscope-image' | 'openai-image' | 'siliconflow-image'
+
+/** 模型预设：apiKey 永不返回，仅回传 hasKey 状态 */
 export interface ModelPreset {
   id: string
   name: string
+  protocol: ModelPresetProtocol
   baseUrl: string
-  apiKey: string
+  hasKey: boolean
   remark: string
 }
 
 /** 编辑时 apiKey 留空表示保持不变 */
 export interface ModelPresetDraft {
   name: string
+  protocol: ModelPresetProtocol
   baseUrl: string
   apiKey?: string
   remark: string
@@ -97,9 +104,17 @@ export interface OpRequest {
   detail: string | null
 }
 
-/** 实时语音识别服务：讯飞流式听写的鉴权三参 */
+/** 实时语音识别服务：讯飞流式听写的鉴权三参（PUT 请求体，密钥留空 = 保持不变） */
 export interface AsrStreamSettings {
   appId: string
   apiKey: string
   apiSecret: string
+}
+
+/** 实时语音识别配置状态（GET/PUT 响应，永不返回密钥明文） */
+export interface AsrStreamStatus {
+  appId: string
+  hasKey: boolean
+  hasSecret: boolean
+  configured: boolean
 }

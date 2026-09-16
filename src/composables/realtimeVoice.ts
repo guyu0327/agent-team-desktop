@@ -77,7 +77,7 @@ export function useRealtimeVoice() {
   async function refreshConfigured() {
     try {
       const s = await getAsrStreamSettings()
-      configured.value = !!(s.appId && s.apiKey && s.apiSecret)
+      configured.value = !!s.configured
     } catch {
       configured.value = false
     }

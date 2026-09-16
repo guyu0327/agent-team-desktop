@@ -9,6 +9,12 @@ export interface DesktopBridge {
   /** 原生文件选择：返回所选路径数组，取消返回 null */
   pickFiles: (opts?: { title?: string; defaultPath?: string; multi?: boolean }) => Promise<string[] | null>
   pickDirectory: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
+  /** 拖拽文件转本机绝对路径（同步），仅桌面模式可用 */
+  pathForFile?: (file: File) => string
+  /** 关闭确认：界面就绪上报后，点关闭由前端弹应用内确认框 */
+  closeUiReady: () => void
+  onCloseRequest: (cb: () => void) => void
+  closeChoice: (choice: 'minimize' | 'quit') => void
 }
 
 export const desktop = (window as any).agentTeam as DesktopBridge

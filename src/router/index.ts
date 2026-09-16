@@ -68,8 +68,31 @@ const router = createRouter({
         },
         {
           path: 'models',
-          name: 'ModelPresets',
           component: () => import('@/views/contact/ModelsView.vue'),
+          children: [
+            {
+              path: '',
+              name: 'ModelEmpty',
+              component: () => import('@/views/contact/ModelsPlaceholder.vue'),
+            },
+            {
+              path: 'add',
+              name: 'PresetAdd',
+              component: () => import('@/views/contact/PresetForm.vue'),
+            },
+            {
+              path: ':id',
+              name: 'PresetDetail',
+              component: () => import('@/views/contact/PresetDetail.vue'),
+              props: true,
+            },
+            {
+              path: ':id/edit',
+              name: 'PresetEdit',
+              component: () => import('@/views/contact/PresetForm.vue'),
+              props: true,
+            },
+          ],
         },
       ],
     },

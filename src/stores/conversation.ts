@@ -30,6 +30,8 @@ export const useConversationStore = defineStore('conversation', () => {
   const orchestratingByConv = ref<Record<string, string>>({})
   /** 会话 -> 是否正在自由讨论接龙 */
   const discussingByConv = ref<Record<string, boolean>>({})
+  /** 会话 -> 正在生成图片的智能体名（generate_image 执行窗口，结束即清除） */
+  const imageGenByConv = ref<Record<string, string>>({})
   /** 会话 -> 待用户决定的受控操作审批请求（智能体调用 write/edit/execute 时产生） */
   const opRequestsByConv = ref<Record<string, OpRequest[]>>({})
 
@@ -51,6 +53,11 @@ export const useConversationStore = defineStore('conversation', () => {
 
   function isTyping(conversationId: string): boolean {
     return !!typingByConv.value[conversationId]
+  }
+
+  /** 正在生成图片的智能体名，无则为空串 */
+  function isGeneratingImage(conversationId: string): string {
+    return imageGenByConv.value[conversationId] ?? ''
   }
 
   function isCoordinating(conversationId: string): boolean {
@@ -147,6 +154,7 @@ export const useConversationStore = defineStore('conversation', () => {
     // 编排协作时消息可能进入新建的项目群，结束时要清理这些会话的 typing/coordination 状态
     const typingCids = new Set<string>([conversationId])
     const coordCids = new Set<string>()
+    const imgCids = new Set<string>()
     const cidOf = (e: { conversationId?: string }) => e.conversationId ?? conversationId
     try {
       await sendMessageStream(conversationId, content, {
@@ -201,10 +209,18 @@ export const useConversationStore = defineStore('conversation', () => {
           delete discussingByConv.value[e.conversationId]
         },
         onOpRequest: (e) => onOpRequest(e),
+        onImageStart: (e) => {
+          imageGenByConv.value[e.conversationId] = e.agentName
+          imgCids.add(e.conversationId)
+        },
+        onImageEnd: (e) => {
+          delete imageGenByConv.value[e.conversationId]
+        },
       }, attachments)
     } finally {
       for (const cid of typingCids) typingByConv.value[cid] = false
       for (const cid of coordCids) delete orchestratingByConv.value[cid]
+      for (const cid of imgCids) delete imageGenByConv.value[cid]
       try {
         if (activeId.value === conversationId) await markRead(conversationId)
       } catch {
@@ -316,6 +332,8 @@ export const useConversationStore = defineStore('conversation', () => {
     activeId,
     typingByConv,
     isTyping,
+    imageGenByConv,
+    isGeneratingImage,
     orchestratingByConv,
     isCoordinating,
     discussingByConv,

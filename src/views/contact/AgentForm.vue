@@ -22,6 +22,7 @@ const form = reactive<AgentDraft>({
   groupName: existing?.groupName ?? '',
   description: existing?.description ?? '',
   presetId: existing?.presetId ?? '',
+  imagePresetId: existing?.imagePresetId ?? '',
   isOrchestrator: existing?.isOrchestrator ?? false,
   systemPrompt: existing?.systemPrompt ?? '',
   temperature: existing?.temperature ?? 0.7,
@@ -31,15 +32,23 @@ const nameError = computed(() => (form.name.trim() ? '' : '请填写名称'))
 
 const presetOptions = computed(() => presetStore.presets)
 
+const imagePresetOptions = computed(() =>
+  presetStore.presets.filter((p) => p.protocol !== 'openai-chat'),
+)
+
+const PROTOCOL_LABELS: Record<string, string> = {
+  'dashscope-image': 'DashScope',
+  'openai-image': 'OpenAI Images',
+  'siliconflow-image': '硅基流动',
+}
+
+function protocolLabel(protocol: string) {
+  return PROTOCOL_LABELS[protocol] ?? protocol
+}
+
 const selectedPreset = computed(() =>
   presetOptions.value.find((p) => p.id === form.presetId),
 )
-
-function maskKey(key: string): string {
-  if (!key) return '未配置'
-  if (key.length <= 8) return '••••••'
-  return `${key.slice(0, 4)}••••${key.slice(-4)}`
-}
 
 const existingGroups = computed(() => [
   ...new Set(
@@ -126,7 +135,7 @@ function cancel() {
         </select>
         <p v-if="presetOptions.length === 0" class="preset-empty">
           还没有模型预设，
-          <router-link to="/models" class="link">去「模型」页新增 →</router-link>
+          <router-link to="/models/add" class="link">去「模型」页新增 →</router-link>
         </p>
       </div>
 
@@ -138,9 +147,20 @@ function cancel() {
 
         <div class="field">
           <label class="label">API Key（由预设提供）</label>
-          <input class="input" :value="maskKey(selectedPreset.apiKey)" readonly disabled />
+          <input class="input" :value="selectedPreset.hasKey ? '已配置' : '未配置'" readonly disabled />
         </div>
       </template>
+
+      <div class="field">
+        <label class="label">图像预设（可选）</label>
+        <select v-model="form.imagePresetId" class="input">
+          <option value="">不启用文生图</option>
+          <option v-for="p in imagePresetOptions" :key="p.id" :value="p.id">
+            {{ p.name }}（{{ protocolLabel(p.protocol) }}）
+          </option>
+        </select>
+        <p class="preset-empty">绑定文生图预设后，该智能体获得 generate_image 工具，可在聊天中生成图片</p>
+      </div>
 
       <div class="field">
         <label class="label">角色设定（System Prompt）</label>
