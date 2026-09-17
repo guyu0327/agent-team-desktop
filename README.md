@@ -1,11 +1,11 @@
-# 智群 AgentTeam · 桌面壳（Electron）
+# 智群 AgentTeam · 桌面端（Electron + Vue）
 
-私有化部署的桌面客户端：Electron 窗口内置 [agent-team-web](https://github.com/guyu0327/agent-team-web) 前端，并自动拉起 [agent-team-server](https://github.com/guyu0327/agent-team-server) 后端（SQLite 单文件数据库），零外部依赖，开箱即用。
+私有化部署的桌面客户端：Electron 窗口内置 Vue 3 前端（`web/` 子目录，经 git subtree 并入），并自动拉起 [agent-team-server](https://github.com/guyu0327/agent-team-server) 后端（SQLite 单文件数据库），零外部依赖，开箱即用。
 
 ## 相关仓库
 
 - [agent-team-server](https://github.com/guyu0327/agent-team-server)：Spring Boot 后端（编排、会话、消息、SSE）
-- [agent-team-web](https://github.com/guyu0327/agent-team-web)：Vue 3 前端（类微信界面）
+- [agent-team-web](https://github.com/guyu0327/agent-team-web)：Vue 3 前端（类微信界面）——已并入本仓库 `web/` 子目录，原仓库已归档（应用「关于」页外链仍指向此处）
 
 ## 架构
 
@@ -14,9 +14,9 @@ agent-team-desktop（本项目，Electron 壳）
 ├── main.js               主进程：拉起/监控后端、启动等待页、单实例锁、本地访问令牌
 ├── preload.js            向渲染进程注入 window.agentTeam（apiBase + token、原生文件选择、pathForFile 拖拽路径解析）
 ├── boot.html             后端就绪前的启动等待页
-└── resources/            构建产物（不入库，见下方「产物同步」）
+├── web/                  Vue 3 前端源码（git subtree 并入，构建产物 web/dist 不入库）
+└── resources/            后端与 JRE 产物（不入库，见下方「产物同步」）
     ├── server/           后端 fat jar（Spring Boot，默认 SQLite）
-    ├── web/              前端构建产物（Vite dist）
     └── jre/              jlink 裁剪的 JRE（win/、mac/ 按平台子目录，见 scripts/build-jre.cmd 与 build-jre.sh）
 ```
 
@@ -25,7 +25,7 @@ agent-team-desktop（本项目，Electron 壳）
 | 命令 | 模式 | 行为 |
 | --- | --- | --- |
 | `npm start` | 桌面模式 | 立即显示启动等待页 → 自动分配空闲端口 → spawn `java -jar resources/server/agent-team-server.jar`（SQLite，数据落在用户目录）→ 健康检查 `/api/user` → 切换到内置前端；关窗弹出应用内确认框（最小化到托盘或退出） |
-| `npm run dev` | 开发模式 | 仅加载 Vite 开发服务器 `http://localhost:5173`，不拉起后端；需自行启动 agent-team-web（`npm run dev`，代理到 8080）与 agent-team-server（裸跑，无令牌校验） |
+| `npm run dev` | 开发模式 | 仅加载 Vite 开发服务器 `http://localhost:5173`，不拉起后端；需先 `npm run dev:web`（起 web/ 前端开发服务器，代理到 8080），并自行启动 agent-team-server（裸跑，无令牌校验） |
 
 桌面模式下数据目录为 `%APPDATA%/agent-team-desktop/`（`data/agent_team.db` + `workspace/` + `token` 访问令牌），与应用目录完全隔离。
 
@@ -39,17 +39,16 @@ agent-team-desktop（本项目，Electron 壳）
 
 ## 产物同步
 
-`resources/` 下均为构建产物，不入库。克隆后先执行同步再 `npm start`：
+`resources/` 与 `web/dist` 为构建产物，不入库。克隆后先执行同步再 `npm start`：
 
 ```bash
-# 1. 后端 jar
+# 1. 前端构建产物（本仓库 web/ 子目录，Vue 3 + Vite）
+npm --prefix web install
+npm run build:web           # → web/dist
+
+# 2. 后端 jar
 cd ../agent-team-server && ./mvnw -DskipTests package
 cp target/agent-team-server-0.0.1-SNAPSHOT.jar ../agent-team-desktop/resources/server/agent-team-server.jar
-
-# 2. 前端构建产物（先清后拷，避免残留旧哈希命名的资源）
-cd ../agent-team-web && npm run build
-rm -rf ../agent-team-desktop/resources/web
-cp -r dist ../agent-team-desktop/resources/web
 
 # 3. 裁剪内置 JRE（在对应平台的机器上执行；jar 优先取源码仓库构建产物，回落本项目已同步的产物）
 scripts\build-jre.cmd      # Windows → resources/jre/win
@@ -75,7 +74,7 @@ npm run dist:mac:dir # macOS 免安装 .app → dist/mac-*/（打包态调试用
 
 ### 环境要求
 
-- Node.js 18+（构建时）
+- Node.js 20.19+（构建 web/ 前端与 Electron 壳时）
 - 构建 JRE 与后端 jar 需要 JDK 21+；**运行打包产物不需要 Java**（已内置裁剪版 JRE）
 - Electron 二进制已配置国内镜像（`.npmrc`），`npm install` 即可
 

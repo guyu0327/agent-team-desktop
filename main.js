@@ -5,8 +5,8 @@ const fs = require('fs')
 const net = require('net')
 const crypto = require('crypto')
 
-// 开发模式：npm run dev，加载 Vite 开发服务器（需自行启动 agent-team-web 与后端 8080）
-// 桌面模式：npm start，自动拉起 resources/server 下的后端并加载 resources/web 前端
+// 开发模式：npm run dev，加载 Vite 开发服务器（需先 npm run dev:web，并自行启动后端 8080）
+// 桌面模式：npm start，自动拉起 resources/server 下的后端并加载 web/dist 前端构建产物
 const isDev = process.argv.includes('--dev')
 
 // 打包态资源在 <安装目录>/resources（extraResources），开发态在项目 resources/ 下
@@ -323,7 +323,10 @@ if (!app.requestSingleInstanceLock()) {
         backendToken = loadOrCreateToken()
         const win = createWindow()
         await startBackend()
-        win.loadFile(path.join(RESOURCE_ROOT, 'web', 'index.html'))
+        // 前端产物：打包态在 extraResources 的 resources/web，开发态直接读 web/dist（vite 构建输出）
+        win.loadFile(app.isPackaged
+          ? path.join(RESOURCE_ROOT, 'web', 'index.html')
+          : path.join(__dirname, 'web', 'dist', 'index.html'))
       } catch (err) {
         dialog.showErrorBox('启动失败', `后端服务未能启动：\n${err.message}`)
         app.quit()

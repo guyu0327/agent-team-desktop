@@ -5,11 +5,9 @@ node_modules/
 dist/
 out/
 
-# 构建产物不入库：由 agent-team-server / agent-team-web 构建后同步（见 README）
+# 构建产物不入库：server jar 由 agent-team-server 构建后同步，jre 由 scripts 裁剪，web 由 web/ 子项目构建到 web/dist（见 README）
 resources/server/*
 !resources/server/.gitkeep
-resources/web/*
-!resources/web/.gitkeep
 resources/jre/
 # 托盘图标以 build/icon.ico 为唯一来源（开发态直接读 build/，打包态经 extraResources 复制）
 resources/icon.ico
