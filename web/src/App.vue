@@ -1,37 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted } from 'vue'
 import { desktop } from '@/api/desktop'
+import { showCloseModal, dontAsk, chooseClose, requestClose } from '@/composables/closeConfirm'
 
 // 阻止浏览器/Electron 对文件拖拽的默认导航（打开文件）；输入区自身的 drop 处理不受影响
 const preventDragNavigation = (e: DragEvent) => e.preventDefault()
-
-// 关闭确认：桌面壳拦截关闭后由这里弹应用内样式的确认框（浏览器模式无此流程）；
-// 勾选「不再询问」后记住本次动作，之后点关闭直接执行
-const CLOSE_PREF_KEY = 'at:close-action'
-const showCloseModal = ref(false)
-const dontAsk = ref(false)
-
-const onCloseChoice = (choice: 'minimize' | 'quit') => {
-  if (dontAsk.value) localStorage.setItem(CLOSE_PREF_KEY, choice)
-  else localStorage.removeItem(CLOSE_PREF_KEY)
-  showCloseModal.value = false
-  desktop?.closeChoice(choice)
-}
 
 onMounted(() => {
   window.addEventListener('dragover', preventDragNavigation)
   window.addEventListener('drop', preventDragNavigation)
   if (desktop) {
     desktop.closeUiReady()
-    desktop.onCloseRequest(() => {
-      const saved = localStorage.getItem(CLOSE_PREF_KEY)
-      if (saved === 'minimize' || saved === 'quit') {
-        desktop.closeChoice(saved)
-      } else {
-        dontAsk.value = false
-        showCloseModal.value = true
-      }
-    })
+    desktop.onCloseRequest(requestClose)
   }
 })
 
@@ -55,8 +35,8 @@ onBeforeUnmount(() => {
           <input v-model="dontAsk" type="checkbox" />
           不再询问
         </label>
-        <button class="close-btn" @click="onCloseChoice('minimize')">最小化到托盘</button>
-        <button class="close-btn quit" @click="onCloseChoice('quit')">退出</button>
+        <button class="close-btn" @click="chooseClose('minimize')">最小化到托盘</button>
+        <button class="close-btn quit" @click="chooseClose('quit')">退出</button>
       </div>
     </div>
   </div>

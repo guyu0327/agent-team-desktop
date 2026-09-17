@@ -2,6 +2,8 @@
 export interface DesktopBridge {
   apiBase: string
   token: string
+  /** 桌面壳平台（process.platform），浏览器模式无此字段 */
+  platform?: string
   /** 数据管理 */
   exportBackup: (targetDir?: string) => Promise<{ ok: boolean; dir?: string; error?: string; canceled?: boolean }>
   importBackup: (backupDir?: string) => Promise<{ ok: boolean; error?: string; canceled?: boolean }>
@@ -11,6 +13,9 @@ export interface DesktopBridge {
   pickDirectory: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
   /** 拖拽文件转本机绝对路径（同步），仅桌面模式可用 */
   pathForFile?: (file: File) => string
+  /** 自绘红绿灯（macOS）：窗口最小化 / 缩放 */
+  windowMinimize: () => void
+  windowToggleMaximize: () => void
   /** 关闭确认：界面就绪上报后，点关闭由前端弹应用内确认框 */
   closeUiReady: () => void
   onCloseRequest: (cb: () => void) => void
