@@ -17,7 +17,7 @@ agent-team-desktop（本项目，Electron 壳）
 └── resources/            构建产物（不入库，见下方「产物同步」）
     ├── server/           后端 fat jar（Spring Boot，默认 SQLite）
     ├── web/              前端构建产物（Vite dist）
-    └── jre/              jlink 裁剪的 JRE（约 51MB，见 scripts/build-jre.cmd）
+    └── jre/              jlink 裁剪的 JRE（win/、mac/ 按平台子目录，见 scripts/build-jre.cmd 与 build-jre.sh）
 ```
 
 ## 运行模式
@@ -35,7 +35,7 @@ agent-team-desktop（本项目，Electron 壳）
 
 托盘与关闭行为：应用常驻系统托盘（左键唤回主窗口，右键菜单：显示主窗口 / 退出）。点关闭按钮弹出应用内样式的确认框——最小化到托盘（后端继续运行）或退出（结束后端），勾选「不再询问」后按所选动作直接执行（记忆在前端 localStorage）。外部 http(s) 链接（如模型控制台）统一交给系统默认浏览器打开。
 
-应用图标：`build/icon.ico` / `build/icon.png` 为唯一来源——rcedit 写入 exe、开发态窗口/任务栏图标、托盘图标（打包态经 extraResources 复制到安装目录 resources）均取自这里，更换图标只需替换 build/ 下两个文件。
+应用图标：`build/icon.ico` / `build/icon.png` 为唯一来源——rcedit 写入 exe、开发态窗口/任务栏图标、托盘图标（打包态经 extraResources 复制到安装目录 resources）均取自这里；Windows 托盘用 ico，macOS 托盘不支持 ico 改用同源 png（自动缩放到菜单栏尺寸），更换图标只需替换 build/ 下两个文件。
 
 ## 产物同步
 
@@ -50,6 +50,10 @@ cp target/agent-team-server-0.0.1-SNAPSHOT.jar ../agent-team-desktop/resources/s
 cd ../agent-team-web && npm run build
 rm -rf ../agent-team-desktop/resources/web
 cp -r dist ../agent-team-desktop/resources/web
+
+# 3. 裁剪内置 JRE（在对应平台的机器上执行；jar 优先取源码仓库构建产物，回落本项目已同步的产物）
+scripts\build-jre.cmd      # Windows → resources/jre/win
+./scripts/build-jre.sh     # macOS   → resources/jre/mac
 ```
 
 ## 打包分发
@@ -61,7 +65,7 @@ npm run dist        # NSIS 安装包 → dist/agent-team-desktop-setup-x.y.z.exe
 npm run dist:dir    # 免安装解包版 → dist/win-unpacked/（打包态调试用）
 ```
 
-- 安装包内置 JRE，目标机器无需安装 Java
+- 安装包内置 JRE，目标机器无需安装 Java；extraResources 按 `${os}` 宏只打包目标平台那份 JRE（`resources/jre/win|mac/`），运行时 `main.js` 按同名字目录查找
 - electron-builder 工具链已配置国内镜像（`.npmrc`）
 - 运行时数据统一在 `%APPDATA%/agent-team-desktop/`，与安装位置无关；单实例锁保证重复启动只聚焦已有窗口
 

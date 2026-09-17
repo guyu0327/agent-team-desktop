@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -36,8 +36,9 @@ function getFreePort() {
 }
 
 function javaExecutable() {
-  // 打包时可将 jlink 裁剪的 JRE 放到 resources/jre，自动优先使用
-  const bundled = path.join(RESOURCE_ROOT, 'jre', 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
+  // 打包时可将 jlink 裁剪的 JRE 放到 resources/jre/<os>（win/mac，与 electron-builder 的 ${os} 宏一致），自动优先使用
+  const osDir = process.platform === 'win32' ? 'win' : 'mac'
+  const bundled = path.join(RESOURCE_ROOT, 'jre', osDir, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
   return fs.existsSync(bundled) ? bundled : 'java'
 }
 
@@ -101,9 +102,13 @@ function showMain(win) {
 
 /** 系统托盘：左键唤回主窗口，右键菜单（显示/退出）。Windows 上 setContextMenu 会让左键也弹菜单，故分开处理 */
 function createTray(win) {
-  // 图标唯一来源是 build/icon.ico：开发态直接读源文件，打包态经 extraResources 复制到安装目录 resources
-  const trayIcon = app.isPackaged ? path.join(RESOURCE_ROOT, 'icon.ico') : path.join(__dirname, 'build', 'icon.ico')
-  tray = new Tray(trayIcon)
+  // 图标唯一来源是 build/icon.ico/png：开发态直接读源文件，打包态经 extraResources 复制到安装目录 resources
+  // macOS 的 Tray 不支持 ico，改用同源 png 并缩放到菜单栏尺寸（Retina 下自动按倍率取质量）
+  const icon = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+  const iconPath = app.isPackaged ? path.join(RESOURCE_ROOT, icon) : path.join(__dirname, 'build', icon)
+  const trayImage = nativeImage.createFromPath(iconPath)
+  if (process.platform !== 'win32') trayImage.resize({ height: 22 })
+  tray = new Tray(trayImage)
   tray.setToolTip('智群 AgentTeam')
   const menu = Menu.buildFromTemplate([
     { label: '显示主窗口', click: () => showMain(win) },
