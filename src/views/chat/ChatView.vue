@@ -6,6 +6,7 @@ import { useUserStore } from '@/stores/user'
 import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
+import { showSettings } from '@/composables/settingsModal'
 import { stopOrchestration } from '@/api/conversation'
 import type { Agent, Attachment, Message, OpRequest } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
@@ -247,7 +248,7 @@ async function startRealtime() {
 function onMicDown() {
   if (rtPhase.value !== 'idle') return
   if (!rtConfigured.value) {
-    router.push('/settings')
+    showSettings.value = true
     return
   }
   void startRealtime()

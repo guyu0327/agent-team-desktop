@@ -4,6 +4,10 @@ import { useUserStore } from '@/stores/user'
 import { alertAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
 
+const emit = defineEmits<{
+  close: []
+}>()
+
 const userStore = useUserStore()
 
 const editing = ref(false)
@@ -24,7 +28,7 @@ async function save() {
   saving.value = true
   try {
     await userStore.updateProfile(nameDraft.value, signatureDraft.value)
-    editing.value = false
+    emit('close')
   } catch (err) {
     alertAction(err instanceof Error ? err.message : '保存失败')
   } finally {
@@ -38,9 +42,9 @@ function cancel() {
 </script>
 
 <template>
-  <div class="profile-view">
-    <div class="profile-card" v-if="userStore.user">
-      <Avatar :name="userStore.user.name" :avatar="userStore.user.avatar" :size="72" />
+  <div class="popover-mask" @click="emit('close')">
+    <div class="profile-pop" @click.stop v-if="userStore.user">
+      <Avatar :name="userStore.user.name" :avatar="userStore.user.avatar" :size="64" />
 
       <template v-if="!editing">
         <h2 class="name">{{ userStore.user.name }}</h2>
@@ -83,27 +87,30 @@ function cancel() {
 </template>
 
 <style scoped lang="scss">
-.profile-view {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: $bg-content;
+// 透明点击层：点卡片外任意处关闭；卡片锚定侧栏头像右下方
+.popover-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
 }
 
-.profile-card {
+.profile-pop {
+  position: fixed;
+  top: 20px;
+  left: 66px;
+  width: 280px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: $spacing-md;
-  padding: $spacing-xxl * 2;
+  padding: $spacing-xxl;
   background: $bg-panel;
+  border: 1px solid $border-color;
   border-radius: $radius-lg;
   box-shadow: $shadow-md;
-  min-width: 360px;
 
   .name {
-    font-size: $font-size-xl;
+    font-size: $font-size-lg;
     font-weight: 600;
   }
 
@@ -115,12 +122,13 @@ function cancel() {
   .signature {
     font-size: $font-size-sm;
     color: $text-tertiary;
+    text-align: center;
   }
 }
 
 .edit-btn {
-  margin-top: $spacing-md;
-  padding: 7px $spacing-xxl;
+  margin-top: $spacing-sm;
+  padding: 6px $spacing-xxl;
   border-radius: $radius-sm;
   background: $primary-color;
   color: $text-white;
@@ -147,7 +155,7 @@ function cancel() {
 
 .input {
   width: 100%;
-  padding: 9px $spacing-md;
+  padding: 8px $spacing-md;
   border-radius: $radius-sm;
   background: $bg-input;
   color: $text-primary;
@@ -171,7 +179,7 @@ function cancel() {
 }
 
 .btn {
-  padding: 7px $spacing-xxl;
+  padding: 6px $spacing-xl;
   border-radius: $radius-sm;
   background: $bg-input;
   color: $text-primary;

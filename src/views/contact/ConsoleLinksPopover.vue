@@ -21,8 +21,8 @@ function open(c: { name: string; url: string }) {
 </script>
 
 <template>
-  <div class="console-mask" @click.self="emit('close')">
-    <div class="console-card">
+  <div class="popover-mask" @click="emit('close')">
+    <div class="console-pop" @click.stop>
       <h3 class="console-title">模型控制台</h3>
       <p class="console-subtitle">点击跳转到对应平台的控制台（系统浏览器打开）</p>
       <div class="console-list">
@@ -42,18 +42,18 @@ function open(c: { name: string; url: string }) {
 </template>
 
 <style scoped lang="scss">
-.console-mask {
+// 透明点击层：点卡片外任意处关闭；卡片锚定「模型控制台」按钮右侧（内容区方向）弹出
+.popover-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
+  z-index: 100;
 }
 
-.console-card {
-  width: 360px;
+.console-pop {
+  position: fixed;
+  bottom: 8px;
+  left: 324px;
+  width: 340px;
   background: $bg-panel;
   border: 1px solid $border-color;
   border-radius: $radius-lg;
@@ -75,7 +75,7 @@ function open(c: { name: string; url: string }) {
 
 .console-list {
   margin-top: $spacing-md;
-  max-height: 420px;
+  max-height: min(420px, 60vh);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

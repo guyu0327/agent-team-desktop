@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import type { ModelPreset } from '@/types'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import SearchBar from '@/components/common/SearchBar.vue'
-import ConsoleLinksModal from './ConsoleLinksModal.vue'
+import ConsoleLinksPopover from './ConsoleLinksPopover.vue'
 
 const route = useRoute()
 const presetStore = useModelPresetStore()
@@ -139,7 +139,7 @@ const activeId = computed(() =>
       <router-view />
     </section>
 
-    <ConsoleLinksModal v-if="showConsole" @close="showConsole = false" />
+    <ConsoleLinksPopover v-if="showConsole" @close="showConsole = false" />
   </div>
 </template>
 

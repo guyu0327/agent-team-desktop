@@ -57,16 +57,6 @@ const router = createRouter({
           ],
         },
         {
-          path: 'profile',
-          name: 'Profile',
-          component: () => import('@/views/profile/ProfileView.vue'),
-        },
-        {
-          path: 'settings',
-          name: 'Settings',
-          component: () => import('@/views/profile/SettingsView.vue'),
-        },
-        {
           path: 'models',
           component: () => import('@/views/contact/ModelsView.vue'),
           children: [

@@ -8,6 +8,8 @@ import { confirmAction } from '@/composables/confirm'
 import { APP_VERSION, GITHUB_REPO_URL, CSDN_BLOG_URL } from '@/constants/app'
 import ChangelogModal from './ChangelogModal.vue'
 
+const emit = defineEmits<{ close: [] }>()
+
 const root = ref('')
 const extraDirsText = ref('')
 const saving = ref(false)
@@ -173,7 +175,7 @@ async function saveAsrStream() {
 </script>
 
 <template>
-  <div class="settings-view">
+  <div class="modal-overlay" @click.self="emit('close')">
     <div class="settings-card">
       <h2 class="title">设置</h2>
 
@@ -302,18 +304,20 @@ async function saveAsrStream() {
 </template>
 
 <style scoped lang="scss">
-.settings-view {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding: $spacing-xxl * 2 $spacing-lg;
+  z-index: 100;
 }
 
 .settings-card {
   width: 560px;
-  align-self: flex-start;
+  max-height: 85vh;
+  overflow-y: auto;
   background: $bg-panel;
   border-radius: $radius-lg;
   padding: $spacing-xxl;

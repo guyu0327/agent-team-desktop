@@ -1,19 +1,24 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useConversationStore } from '@/stores/conversation'
 import Avatar from '@/components/common/Avatar.vue'
 import ConfirmHost from '@/components/common/ConfirmHost.vue'
+import ProfilePopover from '@/views/profile/ProfilePopover.vue'
+import SettingsModal from '@/views/profile/SettingsModal.vue'
+import { showSettings } from '@/composables/settingsModal'
 
 const userStore = useUserStore()
 const conversationStore = useConversationStore()
+const showProfile = ref(false)
 </script>
 
 <template>
   <div class="main-layout">
     <aside class="sidebar">
-      <router-link to="/profile" class="avatar-link" active-class="active" title="我的">
+      <button class="avatar-link" title="我的" @click="showProfile = true">
         <Avatar :name="userStore.user?.name ?? '我'" :avatar="userStore.user?.avatar" :size="36" />
-      </router-link>
+      </button>
 
       <nav class="nav">
         <router-link to="/chat" class="nav-item" active-class="active" title="消息">
@@ -43,14 +48,14 @@ const conversationStore = useConversationStore()
       </nav>
 
       <div class="sidebar-bottom">
-        <router-link to="/settings" class="nav-item" active-class="active" title="设置">
+        <button class="nav-item" title="设置" @click="showSettings = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path
               d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
             />
           </svg>
-        </router-link>
+        </button>
       </div>
     </aside>
 
@@ -59,6 +64,8 @@ const conversationStore = useConversationStore()
     </main>
 
     <ConfirmHost />
+    <ProfilePopover v-if="showProfile" @close="showProfile = false" />
+    <SettingsModal v-if="showSettings" @close="showSettings = false" />
   </div>
 </template>
 
@@ -79,13 +86,17 @@ const conversationStore = useConversationStore()
   flex-shrink: 0;
 
   .avatar-link {
+    padding: 0;
+    border: none;
+    background: none;
     border-radius: $radius-sm;
     outline: 2px solid transparent;
     outline-offset: 1px;
+    cursor: pointer;
     transition: outline-color $transition-fast;
 
-    &.active {
-      outline-color: $primary-color;
+    &:hover {
+      outline-color: $primary-light;
     }
   }
 
