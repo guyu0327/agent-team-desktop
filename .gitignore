@@ -10,6 +10,7 @@ resources/server/*
 !resources/server/.gitkeep
 resources/jre/
 # 托盘图标以 build/icon.ico 为唯一来源（开发态直接读 build/，打包态经 extraResources 复制）
+# icon.ico 与 icon.png 均入库：ico 由 scripts/build-icon.js 从 png 生成，勿删
 resources/icon.ico
 
 # 日志

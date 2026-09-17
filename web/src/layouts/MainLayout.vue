@@ -9,16 +9,25 @@ import SettingsModal from '@/views/profile/SettingsModal.vue'
 import { showSettings } from '@/composables/settingsModal'
 import { requestClose } from '@/composables/closeConfirm'
 import { desktop } from '@/api/desktop'
+import { APP_NAME, APP_VERSION } from '@/constants/app'
+import appIcon from '@/assets/app-icon.png'
 
 const userStore = useUserStore()
 const conversationStore = useConversationStore()
 const showProfile = ref(false)
 // macOS 桌面壳：标题栏已隐藏，原生红绿灯悬浮在侧边栏左上角，侧边栏顶部需让出一条拖拽区
 const isMacDesktop = desktop?.platform === 'darwin'
+// Windows 下原生标题栏被隐藏（main.js titleBarStyle: 'hidden'），由这里自绘弱化标题条
+const isWindows = navigator.userAgent.includes('Windows')
 </script>
 
 <template>
-  <div class="main-layout">
+  <div class="main-layout" :class="{ 'win-titlebar': isWindows }">
+    <div v-if="isWindows" class="titlebar">
+      <img class="titlebar-icon" :src="appIcon" alt="智群 AgentTeam" />
+      <span class="titlebar-text">{{ APP_NAME }} v{{ APP_VERSION }}</span>
+    </div>
+
     <aside class="sidebar">
       <!-- macOS 无标题栏：自绘红绿灯（整组 52px 居中于侧边栏，不越界），按钮间空白为窗口拖拽区 -->
       <div v-if="isMacDesktop" class="titlebar-lights">
@@ -90,6 +99,37 @@ const isMacDesktop = desktop?.platform === 'darwin'
   display: flex;
   height: 100%;
   width: 100%;
+
+  &.win-titlebar {
+    padding-top: 32px;
+  }
+}
+
+// 自绘标题条：整条可拖拽移动窗口，双击最大化；右侧系统绘制的窗口控制按钮（titleBarOverlay）浮在其上
+.titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+  background: $bg-sidebar;
+  -webkit-app-region: drag;
+  z-index: 50;
+
+  .titlebar-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .titlebar-text {
+    font-size: $font-size-sm;
+    color: rgba(230, 230, 230, 0.45);
+    user-select: none;
+  }
 }
 
 .sidebar {

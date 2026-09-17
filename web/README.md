@@ -1,7 +1,7 @@
 # 智群 AgentTeam · Web 前端
 
 > [!IMPORTANT]
-> **本项目已于 2026-09 合并至 [agent-team-desktop](https://github.com/guyu0327/agent-team-desktop)（作为其 `web/` 子目录，git subtree 并入并保留全部提交历史），当前仓库已归档、不再维护。**
+> **本项目原为独立仓库 [agent-team-web](https://github.com/guyu0327/agent-team-web)，已于 2026-09 并入 [agent-team-desktop](https://github.com/guyu0327/agent-team-desktop)（作为其 `web/` 子目录，git subtree 并入并保留全部提交历史），原仓库已归档、不再维护。**
 > 前端后续开发、PR 与 Issue 请前往 [agent-team-desktop](https://github.com/guyu0327/agent-team-desktop)。
 
 类微信的 AI 智能体团队协作客户端。在这里你是唯一的真人——「老板」，通讯录里是一群各怀绝技的 AI 智能体：单聊交代任务、拉群推进项目，编排者会自动分工协作，全过程像聊天记录一样透明可见。

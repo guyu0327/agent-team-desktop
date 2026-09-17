@@ -76,10 +76,10 @@ function cancel() {
           />
         </div>
         <div class="actions">
+          <button class="btn" @click="cancel">取消</button>
           <button class="btn primary" :disabled="!nameDraft.trim() || saving" @click="save">
             {{ saving ? '保存中…' : '保存' }}
           </button>
-          <button class="btn" @click="cancel">取消</button>
         </div>
       </template>
     </div>
@@ -96,7 +96,7 @@ function cancel() {
 
 .profile-pop {
   position: fixed;
-  top: 20px;
+  top: 50px;
   left: 66px;
   width: 280px;
   display: flex;

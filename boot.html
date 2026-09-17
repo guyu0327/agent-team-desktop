@@ -5,6 +5,14 @@
   <title>智群 AgentTeam</title>
 </head>
 <body style="font-family: system-ui; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #1e1e22; color: #d4d4d8;">
+  <!-- Windows 下原生标题栏被隐藏（main.js titleBarOverlay），自绘同款弱化标题条；整条可拖动窗口 -->
+  <div id="titlebar" style="display: none; position: fixed; top: 0; left: 0; right: 0; height: 32px; align-items: center; gap: 8px; padding-left: 10px; background: #1f1f1f; -webkit-app-region: drag; z-index: 10;">
+    <img src="build/icon.png" alt="智群 AgentTeam" style="width: 16px; height: 16px;" />
+    <span style="font-size: 12px; color: rgba(230, 230, 230, 0.45); user-select: none;">智群 AgentTeam</span>
+  </div>
+  <script>
+    if (navigator.userAgent.includes('Windows')) document.getElementById('titlebar').style.display = 'flex'
+  </script>
   <div style="text-align: center;">
     <h2>正在启动…</h2>
     <p style="opacity: .6;">首次启动需要初始化本地数据库</p>

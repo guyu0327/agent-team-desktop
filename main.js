@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage } = require('electron')
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, nativeTheme } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -8,6 +8,9 @@ const crypto = require('crypto')
 // 开发模式：npm run dev，加载 Vite 开发服务器（需先 npm run dev:web，并自行启动后端 8080）
 // 桌面模式：npm start，自动拉起 resources/server 下的后端并加载 web/dist 前端构建产物
 const isDev = process.argv.includes('--dev')
+
+// 界面固定为暗色主题：强制 Windows 原生标题栏变暗（图标+标题那条），避免白底系统栏压在暗色界面上
+nativeTheme.themeSource = 'dark'
 
 // 打包态资源在 <安装目录>/resources（extraResources），开发态在项目 resources/ 下
 const RESOURCE_ROOT = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources')
@@ -131,6 +134,11 @@ function createWindow() {
     height: 800,
     autoHideMenuBar: true,
     title: '智群 AgentTeam',
+    // Windows：隐藏原生标题栏，最小化/最大化/关闭仍由系统绘制（灰色符号，可融合暗色底），
+    // 图标+标题由前端自绘成低亮度样式；mac/linux 保持原生栏不受影响
+    ...(process.platform === 'win32'
+      ? { titleBarStyle: 'hidden', titleBarOverlay: { color: '#1f1f1f', symbolColor: '#999999', height: 32 } }
+      : {}),
     show: false,
     // macOS 隐藏标题栏（Windows 保持系统标题栏）；红绿灯由前端侧边栏自绘，原生的一组比侧边栏宽、会戳进内容区
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),

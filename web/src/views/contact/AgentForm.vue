@@ -193,10 +193,10 @@ function cancel() {
       </div>
 
       <div class="actions">
+        <button class="btn" @click="cancel">取消</button>
         <button class="btn primary" :disabled="!form.name.trim() || !form.presetId" @click="save">
           {{ isEdit ? '保存' : '创建' }}
         </button>
-        <button class="btn" @click="cancel">取消</button>
       </div>
     </div>
   </div>

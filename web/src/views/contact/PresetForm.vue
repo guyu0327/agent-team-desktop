@@ -119,10 +119,10 @@ function cancel() {
       <p v-if="formError" class="error">{{ formError }}</p>
 
       <div class="actions">
+        <button class="btn" @click="cancel">取消</button>
         <button class="btn primary" :disabled="saving" @click="save">
           {{ saving ? '保存中…' : isEdit ? '保存' : '创建' }}
         </button>
-        <button class="btn" @click="cancel">取消</button>
       </div>
     </div>
   </div>

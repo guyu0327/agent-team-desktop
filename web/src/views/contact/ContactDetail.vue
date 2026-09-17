@@ -179,6 +179,9 @@ async function remove() {
       background: $bg-base;
       border-radius: $radius-sm;
       padding: $spacing-md;
+      // 角色设定可能很长：限高内部滚动，避免撑开整张详情卡
+      max-height: 220px;
+      overflow-y: auto;
     }
   }
 }
