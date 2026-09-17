@@ -8,6 +8,8 @@
     "dev": "electron . --dev",
     "dist:dir": "electron-builder --win --dir",
     "dist": "electron-builder --win",
+    "dist:mac:dir": "electron-builder --mac --dir",
+    "dist:mac": "electron-builder --mac",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "guyu",

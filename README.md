@@ -58,14 +58,18 @@ scripts\build-jre.cmd      # Windows → resources/jre/win
 
 ## 打包分发
 
-前置：完成「产物同步」与 JRE 裁剪，然后：
+前置：完成「产物同步」与 JRE 裁剪，然后在目标平台上执行（Windows 包只能在 Windows 打，mac 包只能在 Mac 打）：
 
 ```bash
-npm run dist        # NSIS 安装包 → dist/agent-team-desktop-setup-x.y.z.exe
-npm run dist:dir    # 免安装解包版 → dist/win-unpacked/（打包态调试用）
+npm run dist         # Windows NSIS 安装包 → dist/agent-team-desktop-setup-x.y.z.exe
+npm run dist:dir     # Windows 免安装解包版 → dist/win-unpacked/（打包态调试用）
+npm run dist:mac     # macOS dmg → dist/（须在 Mac 上执行）
+npm run dist:mac:dir # macOS 免安装 .app → dist/mac-*/（打包态调试用）
 ```
 
 - 安装包内置 JRE，目标机器无需安装 Java；extraResources 按 `${os}` 宏只打包目标平台那份 JRE（`resources/jre/win|mac/`），运行时 `main.js` 按同名字目录查找
+- macOS 默认只打包当前机器架构（Apple Silicon 或 Intel），双架构都要支持用 `npx electron-builder --mac --x64 --arm64`
+- 双平台均未签名：Windows 首次运行有 SmartScreen 提示；macOS 首次打开需右键 →「打开」，或 `xattr -cr /Applications/AgentTeam.app` 绕过 Gatekeeper
 - electron-builder 工具链已配置国内镜像（`.npmrc`）
 - 运行时数据统一在 `%APPDATA%/agent-team-desktop/`，与安装位置无关；单实例锁保证重复启动只聚焦已有窗口
 
@@ -79,6 +83,6 @@ npm run dist:dir    # 免安装解包版 → dist/win-unpacked/（打包态调�
 
 - [x] 数据备份/恢复（设置页「数据管理」：导出备份 / 从备份恢复 / 打开数据目录）
 - [x] 应用图标（`build/icon.ico` + `build/icon.png`，rcedit 写入 exe，窗口/任务栏/托盘同源）
-- [ ] 代码签名（未签名，首次运行可能有 SmartScreen 提示）
+- [ ] 代码签名（双平台均未签名，首次运行可能有 SmartScreen / Gatekeeper 提示）
 - [ ] 自动更新（electron-updater，按需）
-- [ ] macOS 打包（dmg/app，暂缓）
+- [x] macOS 打包（dmg/app，`npm run dist:mac`，须在 Mac 上执行）
