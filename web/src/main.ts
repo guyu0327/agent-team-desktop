@@ -8,6 +8,10 @@ import { useConversationStore } from './stores/conversation'
 import { useModelPresetStore } from './stores/modelPreset'
 import { APP_NAME, APP_VERSION } from './constants/app'
 import './styles/global.scss'
+import { desktop } from './api/desktop'
+
+// macOS 桌面壳：在根元素标记平台类，供顶部区域拖拽移动窗口等平台样式使用
+if (desktop?.platform === 'darwin') document.documentElement.classList.add('mac')
 
 document.title = `${APP_NAME} v${APP_VERSION}`
 

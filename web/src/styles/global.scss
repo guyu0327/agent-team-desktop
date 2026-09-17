@@ -53,3 +53,18 @@ a {
   text-decoration: none;
   color: inherit;
 }
+
+/* macOS 桌面壳：drag-region 标记的顶部区域可拖动窗口，内部可交互元素豁免以恢复点击/输入 */
+html.mac .drag-region {
+  -webkit-app-region: drag;
+
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [contenteditable],
+  [role='button'] {
+    -webkit-app-region: no-drag;
+  }
+}

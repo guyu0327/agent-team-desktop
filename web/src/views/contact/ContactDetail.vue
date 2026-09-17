@@ -52,7 +52,7 @@ async function remove() {
   <div class="contact-detail">
     <template v-if="agent">
       <div class="profile-card">
-        <div class="profile-header">
+        <div class="profile-header drag-region">
           <Avatar :name="agent.name" :avatar="agent.avatar" :size="64" />
           <div class="profile-title">
             <h2 class="name">

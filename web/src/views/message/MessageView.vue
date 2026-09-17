@@ -122,7 +122,7 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
 <template>
   <div class="message-module">
     <aside class="list-panel">
-      <div class="panel-header">
+      <div class="panel-header drag-region">
         <SearchBar v-model="keyword" class="search" />
         <button class="icon-btn" title="发起群聊" @click="showGroupModal = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">

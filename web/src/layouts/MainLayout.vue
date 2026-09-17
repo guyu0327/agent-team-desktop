@@ -7,15 +7,31 @@ import ConfirmHost from '@/components/common/ConfirmHost.vue'
 import ProfilePopover from '@/views/profile/ProfilePopover.vue'
 import SettingsModal from '@/views/profile/SettingsModal.vue'
 import { showSettings } from '@/composables/settingsModal'
+import { requestClose } from '@/composables/closeConfirm'
+import { desktop } from '@/api/desktop'
 
 const userStore = useUserStore()
 const conversationStore = useConversationStore()
 const showProfile = ref(false)
+// macOS 桌面壳：标题栏已隐藏，原生红绿灯悬浮在侧边栏左上角，侧边栏顶部需让出一条拖拽区
+const isMacDesktop = desktop?.platform === 'darwin'
 </script>
 
 <template>
   <div class="main-layout">
     <aside class="sidebar">
+      <!-- macOS 无标题栏：自绘红绿灯（整组 52px 居中于侧边栏，不越界），按钮间空白为窗口拖拽区 -->
+      <div v-if="isMacDesktop" class="titlebar-lights">
+        <button class="light close" title="关闭" @click="requestClose()">
+          <svg viewBox="0 0 12 12" class="glyph"><path d="M3.3 3.3l5.4 5.4M8.7 3.3L3.3 8.7" /></svg>
+        </button>
+        <button class="light minimize" title="最小化" @click="desktop?.windowMinimize()">
+          <svg viewBox="0 0 12 12" class="glyph"><path d="M2.8 6h6.4" /></svg>
+        </button>
+        <button class="light zoom" title="缩放" @click="desktop?.windowToggleMaximize()">
+          <svg viewBox="0 0 12 12" class="glyph"><path d="M3.5 8.5V6.1M3.5 8.5h2.4M8.5 3.5v2.4M8.5 3.5H6.1" /></svg>
+        </button>
+      </div>
       <button class="avatar-link" title="我的" @click="showProfile = true">
         <Avatar :name="userStore.user?.name ?? '我'" :avatar="userStore.user?.avatar" :size="36" />
       </button>
@@ -84,6 +100,62 @@ const showProfile = ref(false)
   align-items: center;
   padding: $spacing-lg 0 $spacing-md;
   flex-shrink: 0;
+
+  .titlebar-lights {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 100%;
+    /* 整组 46px（12px 圆点 × 3 + 5px 间距 × 2）居中于 60px 侧边栏，两侧各留 7px；
+       负 margin 抵消侧边栏部分顶部内边距，圆心落在距顶 18px（原生红绿灯高度） */
+    margin-top: -8px;
+    padding: 4px 0 8px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+    -webkit-app-region: drag;
+  }
+
+  .light {
+    /* svg 是 inline 内容、按基线对齐会偏下，用 flex 精确居中 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+
+    .glyph {
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      transition: opacity $transition-fast;
+      stroke: rgba(0, 0, 0, 0.55);
+      stroke-width: 1.2;
+      stroke-linecap: round;
+      fill: none;
+    }
+
+    &:hover .glyph {
+      opacity: 1;
+    }
+
+    &.close {
+      background: #ff5f57;
+    }
+
+    &.minimize {
+      background: #febc2e;
+    }
+
+    &.zoom {
+      background: #28c840;
+    }
+  }
 
   .avatar-link {
     padding: 0;

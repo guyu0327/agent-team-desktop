@@ -132,6 +132,8 @@ function createWindow() {
     autoHideMenuBar: true,
     title: '智群 AgentTeam',
     show: false,
+    // macOS 隐藏标题栏（Windows 保持系统标题栏）；红绿灯由前端侧边栏自绘，原生的一组比侧边栏宽、会戳进内容区
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),
     // 开发模式的窗口/任务栏图标；打包后任务栏图标随 exe 资源
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
@@ -141,6 +143,9 @@ function createWindow() {
         : [],
     },
   })
+
+  // macOS 自绘红绿灯：隐藏原生红绿灯，宽度才能与 56px 侧边栏对齐
+  if (process.platform === 'darwin') win.setWindowButtonVisibility(false)
 
   if (isDev) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173')
@@ -287,6 +292,17 @@ ipcMain.handle('dialog:pick', async (_e, opts) => {
           : ['openFile'],
   })
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths
+})
+
+// ---------- 自绘红绿灯（macOS 侧边栏顶部的窗口控制按钮） ----------
+
+ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize())
+
+ipcMain.on('win:toggle-maximize', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win) return
+  if (win.isMaximized()) win.unmaximize()
+  else win.maximize()
 })
 
 // ---------- 关闭确认（应用内样式弹窗，由渲染进程绘制与响应） ----------
