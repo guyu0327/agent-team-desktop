@@ -509,7 +509,7 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <div class="chat-view">
-    <header class="chat-header">
+    <header class="chat-header drag-region">
       <span class="title">
         {{ title }}
         <span v-if="conversation?.type === 'group'" class="member-count">

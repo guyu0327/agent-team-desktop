@@ -2,7 +2,7 @@
 </script>
 
 <template>
-  <div class="models-placeholder">
+  <div class="models-placeholder drag-region">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
       <rect x="3" y="4" width="18" height="7" rx="2" />
       <rect x="3" y="13" width="18" height="7" rx="2" />
