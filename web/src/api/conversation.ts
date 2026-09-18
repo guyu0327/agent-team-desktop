@@ -1,4 +1,5 @@
 import type { Attachment, Conversation, Message, OpRequest } from '@/types'
+import { t } from '@/i18n'
 import { apiHeaders, apiUrl } from './base'
 import { request } from './http'
 
@@ -9,6 +10,22 @@ export interface MessagePage {
 
 export function listConversations(): Promise<Conversation[]> {
   return request('/conversations')
+}
+
+/** 历史会话（已归档）列表，按归档时间倒序；agentId 非空时只回与其绑定的会话 */
+export function listArchivedConversations(agentId?: string): Promise<Conversation[]> {
+  const query = agentId ? `?archived=true&agentId=${encodeURIComponent(agentId)}` : '?archived=true'
+  return request(`/conversations${query}`)
+}
+
+/** 归档到历史会话（后端会先中断进行中的回复/协作） */
+export function archiveConversation(id: string): Promise<void> {
+  return request(`/conversations/${id}/archive`, { method: 'POST', body: {} })
+}
+
+/** 从历史会话恢复到消息列表（单聊冲突时原活跃会话自动入历史） */
+export function restoreConversation(id: string): Promise<Conversation> {
+  return request(`/conversations/${id}/restore`, { method: 'POST', body: {} })
 }
 
 export function createSingle(agentId: string): Promise<Conversation> {
@@ -117,7 +134,7 @@ export async function sendMessageStream(
     body: JSON.stringify({ content, attachments: attachments.map((a) => ({ path: a.path })) }),
   })
   if (!res.ok || !res.body) {
-    let message = `发送失败 (${res.status})`
+    let message = `${t('chat.sendFailed')} (${res.status})`
     try {
       const data = await res.json()
       if (typeof data?.message === 'string') message = data.message

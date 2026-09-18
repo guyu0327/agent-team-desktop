@@ -1,8 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { t } from '@/i18n'
 import type { Attachment, Conversation, Message, OpRequest } from '@/types'
 import {
   addMembers,
+  archiveConversation as apiArchive,
   createGroup as apiCreateGroup,
   createSingle,
   decideOperation,
@@ -78,13 +80,25 @@ export const useConversationStore = defineStore('conversation', () => {
     opRequestsByConv.value[e.conversationId] = list
   }
 
-  /** 审批卡片决定；请求已超时失效时后端返回 applied=false，同样移除卡片 */
-  async function decideOpRequest(conversationId: string, requestId: string, decision: 'once' | 'conversation' | 'deny') {
+  function clearOpRequests(conversationId: string) {
+    delete opRequestsByConv.value[conversationId]
+  }
+
+  /**
+   * 审批卡片决定。「本会话允许」时后端会一并放行该会话同类型的其他待审批请求，
+   * 这里同步关闭其余同类卡片；请求已超时失效（applied=false）时静默移除卡片，不再弹提示。
+   */
+  async function decideOpRequest(conversationId: string, request: OpRequest, decision: 'once' | 'conversation' | 'deny') {
     try {
-      return await decideOperation(conversationId, requestId, decision)
+      return await decideOperation(conversationId, request.requestId, decision)
     } finally {
       const list = opRequestsByConv.value[conversationId]
-      if (list) opRequestsByConv.value[conversationId] = list.filter((r) => r.requestId !== requestId)
+      if (!list) return
+      const remaining = list.filter(
+        (r) => (decision === 'conversation' ? r.opType !== request.opType : r.requestId !== request.requestId),
+      )
+      if (remaining.length > 0) opRequestsByConv.value[conversationId] = remaining
+      else clearOpRequests(conversationId)
     }
   }
 
@@ -124,7 +138,7 @@ export const useConversationStore = defineStore('conversation', () => {
     if (!msg.content) return
     conv.lastMessage =
       conv.type === 'group' && msg.senderType === 'agent'
-        ? `${agentStore.getById(msg.senderId)?.name ?? '成员'}: ${msg.content}`
+        ? `${agentStore.getById(msg.senderId)?.name ?? t('common.member')}: ${msg.content}`
         : msg.content
     conv.lastMessageTime = msg.timestamp
   }
@@ -134,7 +148,11 @@ export const useConversationStore = defineStore('conversation', () => {
     if (list) list.push(msg)
     else messagesMap.value[msg.conversationId] = [msg]
     const conv = findConv(msg.conversationId)
-    if (conv) applyPreview(conv, msg)
+    if (conv) {
+      applyPreview(conv, msg)
+      // 实时未读：非正在查看的会话，智能体新消息到达即计红点（口径同服务端：不含自己发的）
+      if (msg.conversationId !== activeId.value && msg.senderType !== 'user') conv.unreadCount++
+    }
   }
 
   function sendMessage(content: string, attachments: Attachment[] = []): Promise<void> {
@@ -200,6 +218,8 @@ export const useConversationStore = defineStore('conversation', () => {
         },
         onCoordinationEnd: (e) => {
           delete orchestratingByConv.value[e.conversationId]
+          // 协作结束时后端已终止/唤醒全部审批等待，残留卡片均已失效
+          clearOpRequests(e.conversationId)
         },
         onDiscussionStart: (e) => {
           discussingByConv.value[e.conversationId] = true
@@ -207,6 +227,7 @@ export const useConversationStore = defineStore('conversation', () => {
         },
         onDiscussionEnd: (e) => {
           delete discussingByConv.value[e.conversationId]
+          clearOpRequests(e.conversationId)
         },
         onOpRequest: (e) => onOpRequest(e),
         onImageStart: (e) => {
@@ -222,7 +243,13 @@ export const useConversationStore = defineStore('conversation', () => {
       for (const cid of coordCids) delete orchestratingByConv.value[cid]
       for (const cid of imgCids) delete imageGenByConv.value[cid]
       try {
-        if (activeId.value === conversationId) await markRead(conversationId)
+        // 协作/讨论会把消息写进原会话之外的新会话（如自动建的项目群）：
+        // 凡此刻正在查看的会话都要标记已读，否则稍后 loadConversations 会用服务端
+        // 旧计数把正在阅读的会话重新标成未读
+        const touched = new Set<string>([...typingCids, ...coordCids, ...imgCids])
+        for (const cid of touched) {
+          if (activeId.value === cid) await markRead(cid)
+        }
       } catch {
         /* 已读标记失败可忽略 */
       }
@@ -307,7 +334,7 @@ export const useConversationStore = defineStore('conversation', () => {
     memberIds: string[],
     chatMode: 'passive' | 'free' = 'passive',
   ): Promise<Conversation> {
-    const conv = await apiCreateGroup(name.trim() || '未命名群聊', memberIds, chatMode)
+    const conv = await apiCreateGroup(name.trim() || t('message.unnamed'), memberIds, chatMode)
     conversations.value.push(conv)
     return conv
   }
@@ -316,6 +343,15 @@ export const useConversationStore = defineStore('conversation', () => {
   async function handleAgentRemoved() {
     await loadConversations()
     if (activeId.value && !findConv(activeId.value)) activeId.value = null
+  }
+
+  /** 归档到历史会话：本地清理与删除一致（后端会先中断进行中的回复/协作） */
+  async function archiveConversation(conversationId: string) {
+    await apiArchive(conversationId)
+    conversations.value = conversations.value.filter((c) => c.id !== conversationId)
+    delete messagesMap.value[conversationId]
+    delete opRequestsByConv.value[conversationId]
+    if (activeId.value === conversationId) activeId.value = null
   }
 
   function replaceConv(conv: Conversation) {
@@ -341,6 +377,7 @@ export const useConversationStore = defineStore('conversation', () => {
     opRequestsByConv,
     pendingOpRequests,
     decideOpRequest,
+    clearOpRequests,
     loadConversations,
     setActive,
     sendMessage,
@@ -351,6 +388,7 @@ export const useConversationStore = defineStore('conversation', () => {
     togglePinned,
     resetConversation,
     removeConversation,
+    archiveConversation,
     renameGroup,
     setChatMode,
     addGroupMembers,

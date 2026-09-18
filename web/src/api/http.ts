@@ -1,4 +1,5 @@
 import { apiHeaders, apiUrl } from './base'
+import { t } from '@/i18n'
 
 export class ApiError extends Error {
   status: number
@@ -23,11 +24,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     })
   } catch {
-    throw new ApiError(0, '网络错误，无法连接到服务器')
+    throw new ApiError(0, t('api.networkError'))
   }
 
   if (!res.ok) {
-    let message = `请求失败 (${res.status})`
+    let message = t('api.requestFailed', { code: res.status })
     try {
       const data = await res.json()
       if (typeof data?.message === 'string') message = data.message

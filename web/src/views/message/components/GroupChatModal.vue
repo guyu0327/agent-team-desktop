@@ -4,6 +4,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import Avatar from '@/components/common/Avatar.vue'
+import { t } from '@/i18n'
 
 const emit = defineEmits<{
   close: []
@@ -29,7 +30,7 @@ function toggle(id: string) {
 async function create() {
   if (!canCreate.value) return
   const conv = await conversationStore.createGroup(
-    name.value.trim() || '未命名群聊',
+    name.value.trim() || t('message.unnamed'),
     selectedIds.value,
     freeMode.value ? 'free' : 'passive',
   )
@@ -40,26 +41,26 @@ async function create() {
 <template>
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="modal-card">
-      <h2 class="modal-title">发起群聊</h2>
+      <h2 class="modal-title">{{ t('message.newGroup') }}</h2>
 
       <div class="field">
-        <label class="label">群名称</label>
-        <input v-model="name" class="input" placeholder="默认：未命名群聊" autofocus />
+        <label class="label">{{ t('chat.groupName') }}</label>
+        <input v-model="name" class="input" :placeholder="t('message.namePlaceholder')" autofocus />
       </div>
 
       <div class="field">
-        <label class="label">群内回复方式</label>
+        <label class="label">{{ t('message.replyMode') }}</label>
         <button type="button" class="mode-row" @click="freeMode = !freeMode">
           <span class="mode-info">
-            <span class="mode-name">自由讨论</span>
-            <span class="mode-desc">开启后成员接龙自由讨论，无需逐个 @；关闭时 @谁谁回，没@全员依次回复</span>
+            <span class="mode-name">{{ t('chat.freeMode') }}</span>
+            <span class="mode-desc">{{ freeMode ? t('chat.freeModeDesc') : t('message.passiveDesc') }}</span>
           </span>
           <span class="switch" :class="{ on: freeMode }"><span class="knob"></span></span>
         </button>
       </div>
 
       <div class="field members-field">
-        <label class="label">选择成员（{{ selectedIds.length }}/{{ agentStore.agents.length }}）</label>
+        <label class="label">{{ t('message.pickMembers', { sel: selectedIds.length, total: agentStore.agents.length }) }}</label>
         <div class="member-list">
           <button
             v-for="agent in agentStore.agents"
@@ -72,7 +73,7 @@ async function create() {
             <Avatar :name="agent.name" :avatar="agent.avatar" :size="32" />
             <div class="member-info">
               <span class="member-name">{{ agent.name }}</span>
-              <span class="member-model">{{ (agent.presetId && presetStore.findById(agent.presetId)?.name) || '未关联预设' }}</span>
+              <span class="member-model">{{ (agent.presetId && presetStore.findById(agent.presetId)?.name) || t('common.noPreset') }}</span>
             </div>
             <span class="check" :class="{ checked: selectedIds.includes(agent.id) }">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
@@ -84,8 +85,8 @@ async function create() {
       </div>
 
       <div class="actions">
-        <button class="btn" @click="emit('close')">取消</button>
-        <button class="btn primary" :disabled="!canCreate" @click="create">创建</button>
+        <button class="btn" @click="emit('close')">{{ t('common.cancel') }}</button>
+        <button class="btn primary" :disabled="!canCreate" @click="create">{{ t('message.create') }}</button>
       </div>
     </div>
   </div>

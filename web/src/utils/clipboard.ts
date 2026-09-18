@@ -1,3 +1,5 @@
+import { t } from '@/i18n'
+
 /** 复制文本到剪贴板（需在用户手势内调用） */
 export async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text)
@@ -9,7 +11,7 @@ export async function copyText(text: string): Promise<void> {
  */
 export async function copyImage(src: string): Promise<void> {
   const res = await fetch(src)
-  if (!res.ok) throw new Error(`图片下载失败 (${res.status})`)
+  if (!res.ok) throw new Error(`${t('common.imgDownloadFailed')} (${res.status})`)
   let blob = await res.blob()
   if (blob.type !== 'image/png') {
     blob = await toPngBlob(blob)
@@ -27,11 +29,11 @@ function toPngBlob(blob: Blob): Promise<Blob> {
       canvas.height = img.naturalHeight
       canvas.getContext('2d')?.drawImage(img, 0, 0)
       URL.revokeObjectURL(url)
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('图片转码失败'))), 'image/png')
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(t('common.imgTranscodeFailed')))), 'image/png')
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new Error('图片加载失败'))
+      reject(new Error(t('common.imgLoadFailed')))
     }
     img.src = url
   })

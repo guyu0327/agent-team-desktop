@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { ModelPresetDraft, ModelPresetProtocol } from '@/types'
 import { useModelPresetStore } from '@/stores/modelPreset'
+import { t } from '@/i18n'
 
 const props = defineProps<{ id?: string }>()
 
@@ -20,33 +21,33 @@ const form = reactive<ModelPresetDraft & { apiKey: string }>({
   remark: existing?.remark ?? '',
 })
 
-const PROTOCOL_OPTIONS: { value: ModelPresetProtocol; label: string }[] = [
-  { value: 'openai-chat', label: '对话（OpenAI 兼容）' },
-  { value: 'dashscope-image', label: '文生图（阿里 DashScope）' },
-  { value: 'openai-image', label: '文生图（OpenAI Images 兼容）' },
-  { value: 'siliconflow-image', label: '文生图（硅基流动）' },
-]
+const PROTOCOL_OPTIONS = computed<{ value: ModelPresetProtocol; label: string }[]>(() => [
+  { value: 'openai-chat', label: t('models.protocolChat') },
+  { value: 'dashscope-image', label: t('models.protocolDashscope') },
+  { value: 'openai-image', label: t('models.protocolOpenaiImage') },
+  { value: 'siliconflow-image', label: t('models.protocolSiliconflow') },
+])
 
-const BASE_URL_PLACEHOLDERS: Record<ModelPresetProtocol, string> = {
-  'openai-chat': '如 https://api.deepseek.com/v1',
-  'dashscope-image': '完整接口地址，如 https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
-  'openai-image': '完整接口地址，如 https://api.openai.com/v1/images/generations',
-  'siliconflow-image': '完整接口地址，如 https://api.siliconflow.cn/v1/images/generations',
-}
+const BASE_URL_PLACEHOLDERS = computed<Record<ModelPresetProtocol, string>>(() => ({
+  'openai-chat': t('presetForm.urlPhChat'),
+  'dashscope-image': t('presetForm.urlPhDashscope'),
+  'openai-image': t('presetForm.urlPhOpenaiImage'),
+  'siliconflow-image': t('presetForm.urlPhSiliconflow'),
+}))
 
-const NAME_PLACEHOLDERS: Record<ModelPresetProtocol, string> = {
-  'openai-chat': '如：deepseek-chat，新建智能体时按名称匹配',
-  'dashscope-image': '如：z-image-turbo、qwen-image',
-  'openai-image': '如：dall-e-3、gpt-image-1',
-  'siliconflow-image': '如：Kwai-Kolors/Kolors、Qwen/Qwen-Image',
-}
+const NAME_PLACEHOLDERS = computed<Record<ModelPresetProtocol, string>>(() => ({
+  'openai-chat': t('presetForm.namePhChat'),
+  'dashscope-image': t('presetForm.namePhDashscope'),
+  'openai-image': t('presetForm.namePhOpenaiImage'),
+  'siliconflow-image': t('presetForm.namePhSiliconflow'),
+}))
 
 const saving = ref(false)
 const formError = ref('')
 
 function validate(): string {
-  if (!form.name.trim()) return '请填写模型名称'
-  if (!form.baseUrl.trim()) return '请填写 API 地址'
+  if (!form.name.trim()) return t('presetForm.errName')
+  if (!form.baseUrl.trim()) return t('presetForm.errBaseUrl')
   return ''
 }
 
@@ -67,7 +68,7 @@ async function save() {
       router.push(`/models/${preset.id}`)
     }
   } catch (e) {
-    formError.value = e instanceof Error ? e.message : '保存失败，请稍后再试'
+    formError.value = e instanceof Error ? e.message : t('presetForm.errSave')
   } finally {
     saving.value = false
   }
@@ -81,47 +82,47 @@ function cancel() {
 <template>
   <div class="preset-form">
     <div class="form-card">
-      <h2 class="form-title">{{ isEdit ? `编辑预设：${existing?.name ?? ''}` : '新建模型预设' }}</h2>
+      <h2 class="form-title">{{ isEdit ? t('presetForm.editTitle', { name: existing?.name ?? '' }) : t('presetForm.addTitle') }}</h2>
 
       <div class="field">
-        <label class="label required">类型</label>
+        <label class="label required">{{ t('models.typeLabel') }}</label>
         <select v-model="form.protocol" class="input">
           <option v-for="opt in PROTOCOL_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
         </select>
       </div>
 
       <div class="field">
-        <label class="label required">模型名称</label>
+        <label class="label required">{{ t('presetForm.nameLabel') }}</label>
         <input v-model="form.name" class="input" :placeholder="NAME_PLACEHOLDERS[form.protocol]" />
       </div>
 
       <div class="field">
-        <label class="label required">API 地址</label>
+        <label class="label required">{{ t('models.apiLabel') }}</label>
         <input v-model="form.baseUrl" class="input" :placeholder="BASE_URL_PLACEHOLDERS[form.protocol]" />
       </div>
 
       <div class="field">
-        <label class="label">API Key</label>
+        <label class="label">{{ t('models.keyLabel') }}</label>
         <input
           v-model="form.apiKey"
           class="input"
           type="password"
-          :placeholder="existing ? (existing.hasKey ? '已配置，留空表示不修改' : '未配置') : '保存在服务器数据库'"
+          :placeholder="existing ? (existing.hasKey ? t('presetForm.keyPhExisting') : t('presetForm.keyPhMissing')) : t('presetForm.keyPhNew')"
           autocomplete="off"
         />
       </div>
 
       <div class="field">
-        <label class="label">备注</label>
-        <input v-model="form.remark" class="input" maxlength="50" placeholder="可选，如：公司主账号" />
+        <label class="label">{{ t('models.remarkLabel') }}</label>
+        <input v-model="form.remark" class="input" maxlength="50" :placeholder="t('presetForm.remarkPh')" />
       </div>
 
       <p v-if="formError" class="error">{{ formError }}</p>
 
       <div class="actions">
-        <button class="btn" @click="cancel">取消</button>
+        <button class="btn" @click="cancel">{{ t('common.cancel') }}</button>
         <button class="btn primary" :disabled="saving" @click="save">
-          {{ saving ? '保存中…' : isEdit ? '保存' : '创建' }}
+          {{ saving ? t('settings.saving') : isEdit ? t('common.save') : t('message.create') }}
         </button>
       </div>
     </div>

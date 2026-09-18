@@ -29,6 +29,23 @@ const router = createRouter({
           ],
         },
         {
+          path: 'history',
+          component: () => import('@/views/history/HistoryView.vue'),
+          children: [
+            {
+              path: '',
+              name: 'HistoryEmpty',
+              component: () => import('@/views/history/HistoryPlaceholder.vue'),
+            },
+            {
+              path: ':id',
+              name: 'HistoryDetail',
+              component: () => import('@/views/history/HistoryDetailView.vue'),
+              props: true,
+            },
+          ],
+        },
+        {
           path: 'contact',
           component: () => import('@/views/contact/ContactView.vue'),
           children: [

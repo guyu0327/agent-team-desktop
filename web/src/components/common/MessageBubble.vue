@@ -4,6 +4,9 @@ import type { Message } from '@/types'
 import Avatar from '@/components/common/Avatar.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { fsContentUrl } from '@/utils/image'
+import { openLocalPath } from '@/api/desktop'
+import { showToast } from '@/composables/toast'
+import { t } from '@/i18n'
 
 const props = defineProps<{
   message: Message
@@ -15,6 +18,17 @@ const props = defineProps<{
   typing?: boolean
   /** 是否在气泡上方显示发送者名称（群聊场景） */
   showName?: boolean
+  /** 头像可交互（群聊中点他人头像 @ 对方） */
+  mentionable?: boolean
+}>()
+
+const emit = defineEmits<{
+  /** 左键点击头像：@ 该成员 */
+  avatarClick: []
+  /** 右键点击头像：弹出菜单 */
+  avatarMenu: [e: MouseEvent]
+  /** 右键点击气泡本体（不含周围空白/头像/昵称区） */
+  bubbleMenu: [e: MouseEvent]
 }>()
 
 /** 只有智能体消息走 Markdown 渲染；自己消息和错误提示保持纯文本 */
@@ -23,17 +37,33 @@ const rendered = computed(() => renderMarkdown(props.message.content))
 function viewImage(path: string) {
   window.open(fsContentUrl(path), '_blank')
 }
+
+async function openAttachment(path: string) {
+  const err = await openLocalPath(path)
+  if (err) showToast(err)
+}
 </script>
 
 <template>
   <div class="message-bubble" :class="{ self }">
-    <Avatar :name="senderName" :avatar="senderAvatar" :size="36" />
+    <Avatar
+      :name="senderName"
+      :avatar="senderAvatar"
+      :size="36"
+      :class="{ clickable: mentionable }"
+      @click.stop="mentionable && emit('avatarClick')"
+      @contextmenu.stop.prevent="mentionable && emit('avatarMenu', $event)"
+    />
     <div class="bubble-col">
       <div class="bubble-info">
         <span v-if="showName && senderName" class="sender-name">{{ senderName }}</span>
         <span v-if="badge" class="badge">{{ badge }}</span>
       </div>
-      <div class="bubble" :class="{ error: message.type === 'error' }">
+      <div
+        class="bubble"
+        :class="{ error: message.type === 'error' }"
+        @contextmenu.prevent="emit('bubbleMenu', $event)"
+      >
         <div v-if="message.attachments?.length" class="attachments">
           <template v-for="att in message.attachments" :key="att.path">
             <img
@@ -44,7 +74,7 @@ function viewImage(path: string) {
               alt=""
               @click="viewImage(att.path)"
             />
-            <span v-else class="attachment" :title="att.path">
+            <span v-else class="attachment clickable" :title="`${att.path}${t('common.openClick')}`" @click="openAttachment(att.path)">
               <svg v-if="att.type === 'dir'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                 <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
               </svg>
@@ -82,6 +112,10 @@ function viewImage(path: string) {
       color: $text-white;
       border-radius: $radius-md 2px $radius-md $radius-md;
     }
+  }
+
+  .clickable {
+    cursor: pointer;
   }
 }
 
@@ -178,6 +212,16 @@ function viewImage(path: string) {
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(255, 255, 255, 0.12);
     cursor: default;
+
+    &.clickable {
+      cursor: pointer;
+      transition: background $transition-fast, border-color $transition-fast;
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.4);
+        border-color: rgba(255, 255, 255, 0.25);
+      }
+    }
 
     svg {
       width: 14px;

@@ -1,14 +1,21 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import SearchBar from '@/components/common/SearchBar.vue'
 import Avatar from '@/components/common/Avatar.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
 import type { Agent } from '@/types'
 import { useAgentStore } from '@/stores/agent'
+import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
+import { confirmAction } from '@/composables/confirm'
+import { showToast } from '@/composables/toast'
+import { t } from '@/i18n'
 
 const route = useRoute()
+const router = useRouter()
 const agentStore = useAgentStore()
+const conversationStore = useConversationStore()
 const presetStore = useModelPresetStore()
 
 const searchQuery = ref('')
@@ -68,7 +75,7 @@ const groups = computed<AgentGroup[]>(() => {
     }
   }
   const result: AgentGroup[] = [...named.entries()].map(([name, agents]) => ({ name, agents }))
-  if (ungrouped.length > 0) result.push({ name: '未分组', agents: ungrouped })
+  if (ungrouped.length > 0) result.push({ name: t('contact.ungrouped'), agents: ungrouped })
   return result
 })
 
@@ -77,12 +84,60 @@ const searching = computed(() => searchQuery.value.trim().length > 0)
 const activeId = computed(() =>
   route.name === 'ContactDetail' || route.name === 'AgentEdit' ? (route.params.id as string) : null,
 )
+
+// 智能体右键菜单
+const ctx = ref<{ x: number; y: number; agent: Agent } | null>(null)
+
+const ctxItems = computed(() => [
+  { key: 'chat', label: t('contact.chat') },
+  { key: 'history', label: t('contact.history') },
+  { key: 'edit', label: t('common.edit') },
+  { key: 'delete', label: t('common.delete'), danger: true },
+])
+
+async function onCtxSelect(key: string) {
+  const agent = ctx.value?.agent
+  if (!agent) return
+  if (key === 'chat') {
+    try {
+      const conversationId = await conversationStore.openConversationWith(agent.id)
+      router.push(`/chat/${conversationId}`)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t('message.openFailed'))
+    }
+    return
+  }
+  if (key === 'history') {
+    router.push({ path: '/history', query: { agentId: agent.id } })
+    return
+  }
+  if (key === 'edit') {
+    router.push(`/contact/${agent.id}/edit`)
+    return
+  }
+  if (key === 'delete') {
+    const ok = await confirmAction({
+      title: t('contact.deleteWarn'),
+      message: t('contact.deleteMsg', { name: agent.name }),
+      confirmText: t('contact.deleteOk'),
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await agentStore.removeAgent(agent.id)
+      await conversationStore.handleAgentRemoved()
+      if (route.params.id === agent.id) router.push('/contact')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t('contact.deleteFailed'))
+    }
+  }
+}
 </script>
 
 <template>
   <div class="contact-module">
     <aside class="list-panel">
-      <SearchBar v-model="searchQuery" placeholder="搜索智能体" />
+      <SearchBar v-model="searchQuery" :placeholder="t('contact.searchPlaceholder')" />
       <div class="agent-list">
         <router-link :to="`/contact/add`" class="add-link">
           <div class="add-row" :class="{ active: route.name === 'AgentAdd' }">
@@ -91,7 +146,7 @@ const activeId = computed(() =>
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </span>
-            <span class="name">新建智能体</span>
+            <span class="name">{{ t('contact.add') }}</span>
           </div>
         </router-link>
 
@@ -99,7 +154,7 @@ const activeId = computed(() =>
           <button
             type="button"
             class="group-header"
-            :title="searching ? '搜索时不折叠' : undefined"
+            :title="searching ? t('contact.noCollapseWhileSearch') : undefined"
             @click="!searching && toggleGroup(group.name)"
           >
             <svg class="chevron" :class="{ expanded: searching || !collapsed.has(group.name) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -115,22 +170,31 @@ const activeId = computed(() =>
               :key="agent.id"
               :to="`/contact/${agent.id}`"
               class="agent-link"
+              @contextmenu.prevent="ctx = { x: $event.clientX, y: $event.clientY, agent }"
             >
               <div class="agent-item" :class="{ active: agent.id === activeId }">
                 <Avatar :name="agent.name" :avatar="agent.avatar" :size="36" />
                 <div class="agent-info">
                   <span class="name">
                     {{ agent.name }}
-                    <span v-if="agent.isOrchestrator" class="orch-chip">编排</span>
+                    <span v-if="agent.isOrchestrator" class="orch-chip">{{ t('common.orch') }}</span>
                   </span>
-                  <span class="desc">{{ agent.description || (agent.presetId ? presetStore.findById(agent.presetId)?.name : '') || '未关联预设' }}</span>
+                  <span class="desc">{{ agent.description || (agent.presetId ? presetStore.findById(agent.presetId)?.name : '') || t('common.noPreset') }}</span>
                 </div>
               </div>
             </router-link>
           </template>
         </div>
 
-        <div v-if="groups.length === 0" class="empty">无匹配的智能体</div>
+        <div v-if="groups.length === 0" class="empty">{{ t('contact.empty') }}</div>
+        <ContextMenu
+          v-if="ctx"
+          :x="ctx.x"
+          :y="ctx.y"
+          :items="ctxItems"
+          @select="onCtxSelect"
+          @close="ctx = null"
+        />
       </div>
     </aside>
     <section class="content-area">

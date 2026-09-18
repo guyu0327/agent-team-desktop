@@ -3,12 +3,20 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import type { FileGrant } from '@/types'
 import { listFileGrants, revokeFile } from '@/api/fs'
 import { alertAction, confirmAction } from '@/composables/confirm'
+import { openLocalPath } from '@/api/desktop'
+import { showToast } from '@/composables/toast'
+import { t } from '@/i18n'
 
 const props = defineProps<{ conversationId: string }>()
 const emit = defineEmits<{ close: [] }>()
 
 const rootEl = ref<HTMLElement>()
 const grants = ref<FileGrant[]>([])
+
+async function open(grant: FileGrant) {
+  const err = await openLocalPath(grant.path)
+  if (err) showToast(err)
+}
 
 onMounted(() => {
   loadGrants()
@@ -33,9 +41,9 @@ async function loadGrants() {
 
 async function revoke(grant: FileGrant) {
   const ok = await confirmAction({
-    title: '取消授权',
-    message: `确定取消「${grant.name}」的读写授权吗？智能体将无法再访问该路径。`,
-    confirmText: '取消授权',
+    title: t('grants.revokeTitle'),
+    message: t('grants.revokeMsg', { name: grant.name }),
+    confirmText: t('grants.revokeTitle'),
     danger: true,
   })
   if (!ok) return
@@ -43,14 +51,14 @@ async function revoke(grant: FileGrant) {
     await revokeFile(props.conversationId, grant.path)
     grants.value = grants.value.filter((g) => g.path !== grant.path)
   } catch (e) {
-    alertAction(e instanceof Error ? e.message : '操作失败')
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
   }
 }
 </script>
 
 <template>
   <div ref="rootEl" class="grants-popover" @click.stop>
-    <div class="popover-title">本会话已授权（智能体可读写）</div>
+    <div class="popover-title">{{ t('grants.title') }}</div>
     <div class="grants-list">
       <div v-for="grant in grants" :key="grant.path" class="grant-row">
         <svg v-if="grant.type === 'dir'" class="icon dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
@@ -63,9 +71,10 @@ async function revoke(grant: FileGrant) {
           <span class="grant-name">{{ grant.name }}</span>
           <span class="grant-path">{{ grant.path }}</span>
         </span>
-        <button class="revoke" title="取消授权" @click="revoke(grant)">✕</button>
+        <button class="open-btn" :title="t('grants.openTip')" @click="open(grant)">{{ t('common.open') }}</button>
+        <button class="revoke" :title="t('grants.revokeTip')" @click="revoke(grant)">✕</button>
       </div>
-      <div v-if="grants.length === 0" class="empty">暂无授权，附加文件或文件夹后自动授权</div>
+      <div v-if="grants.length === 0" class="empty">{{ t('grants.empty') }}</div>
     </div>
   </div>
 </template>
@@ -108,7 +117,8 @@ async function revoke(grant: FileGrant) {
   &:hover {
     background: $bg-panel-hover;
 
-    .revoke {
+    .revoke,
+    .open-btn {
       opacity: 1;
     }
   }
@@ -143,6 +153,23 @@ async function revoke(grant: FileGrant) {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .open-btn {
+    padding: 3px $spacing-md;
+    border-radius: $radius-sm;
+    background: $bg-input;
+    color: $text-secondary;
+    font-size: $font-size-xs;
+    cursor: pointer;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: all $transition-fast;
+
+    &:hover {
+      background: $bg-hover;
+      color: $text-primary;
+    }
   }
 
   .revoke {

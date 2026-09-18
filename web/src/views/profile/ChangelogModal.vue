@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { APP_VERSION } from '@/constants/app'
 import { CHANGELOG } from './changelog'
+import { t } from '@/i18n'
 
 const emit = defineEmits<{ close: [] }>()
 </script>
@@ -8,12 +9,12 @@ const emit = defineEmits<{ close: [] }>()
 <template>
   <div class="changelog-mask" @click.self="emit('close')">
     <div class="changelog-card">
-      <h3 class="title">更新日志</h3>
+      <h3 class="title">{{ t('changelog.title') }}</h3>
       <div class="entry-list">
         <div v-for="entry in CHANGELOG" :key="entry.date" class="entry">
           <div class="entry-head">
             <span class="version">v{{ entry.date.replaceAll('-', '.') }}</span>
-            <span v-if="entry.date.replaceAll('-', '.') === APP_VERSION" class="current-chip">当前版本</span>
+            <span v-if="entry.date.replaceAll('-', '.') === APP_VERSION" class="current-chip">{{ t('changelog.currentVersion') }}</span>
           </div>
           <ul class="items">
             <li v-for="item in entry.items" :key="item">{{ item }}</li>
@@ -21,7 +22,7 @@ const emit = defineEmits<{ close: [] }>()
         </div>
       </div>
       <div class="actions">
-        <button class="btn" @click="emit('close')">关闭</button>
+        <button class="btn" @click="emit('close')">{{ t('common.close') }}</button>
       </div>
     </div>
   </div>
@@ -87,7 +88,7 @@ const emit = defineEmits<{ close: [] }>()
     padding: 3px 7px;
     border-radius: $radius-sm;
     color: $primary-color;
-    background: rgba($primary-color, 0.12);
+    background: rgba(var(--c-primary-rgb), 0.12);
   }
 }
 

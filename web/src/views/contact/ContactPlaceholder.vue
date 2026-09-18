@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
 </script>
 
 <template>
@@ -8,7 +9,7 @@
       <rect x="9" y="9" width="6" height="6" rx="1" />
       <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" stroke-linecap="round" />
     </svg>
-    <p>选择智能体查看配置，或点击「新建智能体」</p>
+    <p>{{ t('contact.placeholder') }}</p>
   </div>
 </template>
 

@@ -8,3 +8,16 @@ export function getWorkspaceSettings(): Promise<WorkspaceSettings> {
 export function updateWorkspaceSettings(root: string, extraDirs: string[]): Promise<WorkspaceSettings> {
   return request('/settings/workspace', { method: 'PUT', body: { root, extraDirs } })
 }
+
+export interface CoordinationLimits {
+  overallMinutes: number
+  memberMinutes: number
+}
+
+export function getCoordinationLimits(): Promise<CoordinationLimits> {
+  return request('/settings/coordination')
+}
+
+export function updateCoordinationLimits(overallMinutes: number, memberMinutes: number): Promise<CoordinationLimits> {
+  return request('/settings/coordination', { method: 'PUT', body: { overallMinutes, memberMinutes } })
+}

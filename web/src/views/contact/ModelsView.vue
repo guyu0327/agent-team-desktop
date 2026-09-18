@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { ModelPreset } from '@/types'
 import { useModelPresetStore } from '@/stores/modelPreset'
+import { alertAction, confirmAction } from '@/composables/confirm'
 import SearchBar from '@/components/common/SearchBar.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
 import ConsoleLinksPopover from './ConsoleLinksPopover.vue'
+import { t } from '@/i18n'
 
 const route = useRoute()
+const router = useRouter()
 const presetStore = useModelPresetStore()
 
 const searchQuery = ref('')
@@ -54,8 +58,8 @@ const groups = computed<PresetGroup[]>(() => {
   const chat = filteredPresets.value.filter((p) => p.protocol === 'openai-chat')
   const image = filteredPresets.value.filter((p) => p.protocol !== 'openai-chat')
   const result: PresetGroup[] = []
-  if (chat.length > 0) result.push({ name: '对话预设', presets: chat })
-  if (image.length > 0) result.push({ name: '文生图预设', presets: image })
+  if (chat.length > 0) result.push({ name: t('models.groupChat'), presets: chat })
+  if (image.length > 0) result.push({ name: t('models.groupImage'), presets: image })
   return result
 })
 
@@ -64,12 +68,44 @@ const searching = computed(() => searchQuery.value.trim().length > 0)
 const activeId = computed(() =>
   route.name === 'PresetDetail' || route.name === 'PresetEdit' ? (route.params.id as string) : null,
 )
+
+// 预设右键菜单
+const ctx = ref<{ x: number; y: number; preset: ModelPreset } | null>(null)
+
+const ctxItems = computed(() => [
+  { key: 'edit', label: t('common.edit') },
+  { key: 'delete', label: t('common.delete'), danger: true },
+])
+
+async function onCtxSelect(key: string) {
+  const preset = ctx.value?.preset
+  if (!preset) return
+  if (key === 'edit') {
+    router.push(`/models/${preset.id}/edit`)
+    return
+  }
+  if (key === 'delete') {
+    const ok = await confirmAction({
+      title: t('common.delete'),
+      message: t('models.deleteMsg', { name: preset.name }),
+      confirmText: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await presetStore.removePreset(preset.id)
+      if (route.params.id === preset.id) router.push('/models')
+    } catch (e) {
+      alertAction(e instanceof Error ? e.message : t('models.deleteFailed'))
+    }
+  }
+}
 </script>
 
 <template>
   <div class="models-module">
     <aside class="list-panel">
-      <SearchBar v-model="searchQuery" placeholder="搜索模型预设" />
+      <SearchBar v-model="searchQuery" :placeholder="t('models.searchPlaceholder')" />
       <div class="preset-list">
         <router-link to="/models/add" class="add-link">
           <div class="add-row" :class="{ active: route.name === 'PresetAdd' }">
@@ -78,7 +114,7 @@ const activeId = computed(() =>
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </span>
-            <span class="name">新建预设</span>
+            <span class="name">{{ t('models.add') }}</span>
           </div>
         </router-link>
 
@@ -86,7 +122,7 @@ const activeId = computed(() =>
           <button
             type="button"
             class="group-header"
-            :title="searching ? '搜索时不折叠' : undefined"
+            :title="searching ? t('contact.noCollapseWhileSearch') : undefined"
             @click="!searching && toggleGroup(group.name)"
           >
             <svg class="chevron" :class="{ expanded: searching || !collapsed.has(group.name) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -102,6 +138,7 @@ const activeId = computed(() =>
               :key="preset.id"
               :to="`/models/${preset.id}`"
               class="preset-link"
+              @contextmenu.prevent="ctx = { x: $event.clientX, y: $event.clientY, preset }"
             >
               <div class="preset-item" :class="{ active: preset.id === activeId }">
                 <span class="preset-icon" :class="{ image: preset.protocol !== 'openai-chat' }">
@@ -123,7 +160,15 @@ const activeId = computed(() =>
           </template>
         </div>
 
-        <div v-if="groups.length === 0" class="empty">无匹配的模型预设</div>
+        <div v-if="groups.length === 0" class="empty">{{ t('models.empty') }}</div>
+        <ContextMenu
+          v-if="ctx"
+          :x="ctx.x"
+          :y="ctx.y"
+          :items="ctxItems"
+          @select="onCtxSelect"
+          @close="ctx = null"
+        />
       </div>
       <div class="console-entry">
         <button type="button" class="console-btn" @click="showConsole = true">
@@ -131,7 +176,7 @@ const activeId = computed(() =>
             <path d="M4 17l6-6-6-6" />
             <path d="M12 19h8" />
           </svg>
-          模型控制台
+          {{ t('models.console') }}
         </button>
       </div>
     </aside>
@@ -301,7 +346,7 @@ const activeId = computed(() =>
 
     &.image {
       color: $primary-color;
-      background: rgba($primary-color, 0.12);
+      background: rgba(var(--c-primary-rgb), 0.12);
     }
   }
 

@@ -4,12 +4,14 @@ import { useUserStore } from '@/stores/user'
 import { useConversationStore } from '@/stores/conversation'
 import Avatar from '@/components/common/Avatar.vue'
 import ConfirmHost from '@/components/common/ConfirmHost.vue'
+import ToastHost from '@/components/common/ToastHost.vue'
 import ProfilePopover from '@/views/profile/ProfilePopover.vue'
 import SettingsModal from '@/views/profile/SettingsModal.vue'
 import { showSettings } from '@/composables/settingsModal'
 import { requestClose } from '@/composables/closeConfirm'
 import { desktop } from '@/api/desktop'
 import { APP_NAME, APP_VERSION } from '@/constants/app'
+import { t } from '@/i18n'
 import appIcon from '@/assets/app-icon.png'
 
 const userStore = useUserStore()
@@ -31,22 +33,22 @@ const isWindows = navigator.userAgent.includes('Windows')
     <aside class="sidebar">
       <!-- macOS 无标题栏：自绘红绿灯（整组 52px 居中于侧边栏，不越界），按钮间空白为窗口拖拽区 -->
       <div v-if="isMacDesktop" class="titlebar-lights">
-        <button class="light close" title="关闭" @click="requestClose()">
+        <button class="light close" :title="t('common.close')" @click="requestClose()">
           <svg viewBox="0 0 12 12" class="glyph"><path d="M3.3 3.3l5.4 5.4M8.7 3.3L3.3 8.7" /></svg>
         </button>
-        <button class="light minimize" title="最小化" @click="desktop?.windowMinimize()">
+        <button class="light minimize" :title="t('common.minimize')" @click="desktop?.windowMinimize()">
           <svg viewBox="0 0 12 12" class="glyph"><path d="M2.8 6h6.4" /></svg>
         </button>
-        <button class="light zoom" title="缩放" @click="desktop?.windowToggleMaximize()">
+        <button class="light zoom" :title="t('common.zoom')" @click="desktop?.windowToggleMaximize()">
           <svg viewBox="0 0 12 12" class="glyph"><path d="M3.5 8.5V6.1M3.5 8.5h2.4M8.5 3.5v2.4M8.5 3.5H6.1" /></svg>
         </button>
       </div>
-      <button class="avatar-link" title="我的" @click="showProfile = true">
-        <Avatar :name="userStore.user?.name ?? '我'" :avatar="userStore.user?.avatar" :size="36" />
+      <button class="avatar-link" :title="t('nav.me')" @click="showProfile = true">
+        <Avatar :name="userStore.user?.name ?? t('profile.me')" :avatar="userStore.user?.avatar" :size="36" />
       </button>
 
       <nav class="nav">
-        <router-link to="/chat" class="nav-item" active-class="active" title="消息">
+        <router-link to="/chat" class="nav-item" active-class="active" :title="t('nav.messages')">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M12 3C6.48 3 2 6.94 2 11.75c0 2.66 1.4 5.04 3.62 6.65-.12.83-.5 2.1-1.12 3.1 0 0 2.3-.2 4.12-1.4.74.16 1.52.25 2.33.25h.05c5.52 0 10-3.94 10-8.75S17.52 3 12 3z"
@@ -56,24 +58,31 @@ const isWindows = navigator.userAgent.includes('Windows')
             {{ conversationStore.totalUnread > 99 ? '99+' : conversationStore.totalUnread }}
           </span>
         </router-link>
-        <router-link to="/contact" class="nav-item" active-class="active" title="通讯录">
+        <router-link to="/contact" class="nav-item" active-class="active" :title="t('nav.contacts')">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"
             />
           </svg>
         </router-link>
-        <router-link to="/models" class="nav-item" active-class="active" title="模型">
+        <router-link to="/models" class="nav-item" active-class="active" :title="t('nav.models')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="5" width="14" height="14" rx="2" />
             <rect x="10" y="10" width="4" height="4" />
             <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
           </svg>
         </router-link>
+        <router-link to="/history" class="nav-item" active-class="active" :title="t('nav.history')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3.5 7.5" />
+            <path d="M3 3v5h5" />
+            <path d="M12 7v5l3.5 2" />
+          </svg>
+        </router-link>
       </nav>
 
       <div class="sidebar-bottom">
-        <button class="nav-item" title="设置" @click="showSettings = true">
+        <button class="nav-item" :title="t('nav.settings')" @click="showSettings = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path
@@ -89,6 +98,7 @@ const isWindows = navigator.userAgent.includes('Windows')
     </main>
 
     <ConfirmHost />
+    <ToastHost />
     <ProfilePopover v-if="showProfile" @close="showProfile = false" />
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
   </div>
@@ -127,7 +137,7 @@ const isWindows = navigator.userAgent.includes('Windows')
 
   .titlebar-text {
     font-size: $font-size-sm;
-    color: rgba(230, 230, 230, 0.45);
+    color: var(--c-titlebar-text);
     user-select: none;
   }
 }

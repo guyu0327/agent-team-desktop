@@ -9,8 +9,53 @@ const crypto = require('crypto')
 // 桌面模式：npm start，自动拉起 resources/server 下的后端并加载 web/dist 前端构建产物
 const isDev = process.argv.includes('--dev')
 
-// 界面固定为暗色主题：强制 Windows 原生标题栏变暗（图标+标题那条），避免白底系统栏压在暗色界面上
-nativeTheme.themeSource = 'dark'
+// ---------- 主题外观（深色/浅色，系统设置里切换，持久化到 userData） ----------
+
+const SYSTEM_SETTINGS_FILE = 'system-settings.json'
+
+const TITLEBAR_THEMES = {
+  dark: { color: '#1f1f1f', symbolColor: '#999999' },
+  light: { color: '#e8e9eb', symbolColor: '#666666' },
+}
+
+function systemSettingsPath() {
+  return path.join(app.getPath('userData'), SYSTEM_SETTINGS_FILE)
+}
+
+function loadSystemSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(systemSettingsPath(), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function saveSystemSetting(key, value) {
+  const settings = loadSystemSettings()
+  settings[key] = value
+  fs.writeFileSync(systemSettingsPath(), JSON.stringify(settings), 'utf8')
+}
+
+function resolveTheme(theme) {
+  return theme === 'light' ? 'light' : 'dark'
+}
+
+/** 同步原生侧主题：Windows 自绘标题条 overlay 配色随主题切换 */
+function applyNativeTheme(theme) {
+  nativeTheme.themeSource = theme
+  if (process.platform === 'win32') {
+    for (const win of BrowserWindow.getAllWindows()) {
+      try {
+        win.setTitleBarOverlay(TITLEBAR_THEMES[theme])
+      } catch {
+        /* 平台不支持或 overlay 未启用时忽略 */
+      }
+    }
+  }
+}
+
+// 启动即应用上次选择的主题（默认深色），避免重启时闪色
+applyNativeTheme(resolveTheme(loadSystemSettings().theme))
 
 // 打包态资源在 <安装目录>/resources（extraResources），开发态在项目 resources/ 下
 const RESOURCE_ROOT = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources')
@@ -278,6 +323,51 @@ ipcMain.handle('data:import', async (_e, backupDir) => {
 ipcMain.handle('data:open-dir', async () => {
   await shell.openPath(app.getPath('userData'))
   return { ok: true }
+})
+
+// 用系统默认方式打开本机文件/文件夹（工作区文件快捷打开）；openPath 成功返回 ''，失败返回错误描述
+ipcMain.handle('shell:open-path', async (_e, p) => {
+  if (typeof p !== 'string' || !p.trim()) return { ok: false, error: '路径为空' }
+  const err = await shell.openPath(p)
+  return err ? { ok: false, error: err } : { ok: true }
+})
+
+// 粘贴附件：File API 区分不了文件夹，由主进程 stat 判定
+ipcMain.handle('shell:stat', (_e, p) => {
+  try {
+    return { ok: true, isDir: fs.statSync(p).isDirectory() }
+  } catch {
+    return { ok: false }
+  }
+})
+
+// 无源文件的剪贴板图片（截图、聊天里复制的图片）落盘临时目录，返回可附件化的路径
+ipcMain.handle('clipboard:save-image', (_e, data) => {
+  try {
+    const dir = path.join(app.getPath('temp'), 'agent-team-paste')
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, `paste-${Date.now()}.png`)
+    fs.writeFileSync(file, Buffer.from(data))
+    return { ok: true, path: file }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+// ---------- 系统设置（开机自启 / 主题外观） ----------
+
+ipcMain.handle('app:get-login-item', () => app.getLoginItemSettings().openAtLogin)
+
+ipcMain.handle('app:set-login-item', (_e, open) => {
+  app.setLoginItemSettings({ openAtLogin: !!open })
+  return app.getLoginItemSettings().openAtLogin
+})
+
+ipcMain.handle('system:set-theme', (_e, theme) => {
+  const t = resolveTheme(theme)
+  applyNativeTheme(t)
+  saveSystemSetting('theme', t)
+  return t
 })
 
 // ---------- 原生文件选择（系统资源管理器对话框） ----------

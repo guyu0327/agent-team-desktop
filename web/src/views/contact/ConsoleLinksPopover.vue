@@ -1,18 +1,21 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { t } from '@/i18n'
+
 const emit = defineEmits<{ close: [] }>()
 
-const CONSOLES: { name: string; desc: string; url: string }[] = [
+const CONSOLES = computed<{ name: string; desc: string; url: string }[]>(() => [
   { name: 'DeepSeek', desc: 'deepseek-chat / deepseek-reasoner', url: 'https://platform.deepseek.com/' },
-  { name: '阿里云百炼', desc: 'qwen 系列、DashScope 文生图', url: 'https://bailian.console.aliyun.com/' },
-  { name: '硅基流动', desc: 'Qwen-Image / Kolors 等聚合平台', url: 'https://cloud.siliconflow.cn/' },
-  { name: '智谱 AI', desc: 'glm-4 系列', url: 'https://open.bigmodel.cn/' },
-  { name: '月之暗面', desc: 'kimi 系列', url: 'https://platform.moonshot.cn/' },
-  { name: '火山方舟', desc: '豆包系列', url: 'https://console.volcengine.com/ark' },
-  { name: '讯飞开放平台', desc: '星火模型 / 语音听写', url: 'https://console.xfyun.cn/' },
-  { name: 'OpenAI', desc: 'gpt 系列', url: 'https://platform.openai.com/' },
-  { name: 'Anthropic', desc: 'claude 系列', url: 'https://console.anthropic.com/' },
-  { name: 'Google AI Studio', desc: 'gemini 系列', url: 'https://aistudio.google.com/' },
-]
+  { name: t('console.bailian'), desc: t('console.bailianDesc'), url: 'https://bailian.console.aliyun.com/' },
+  { name: t('console.siliconflow'), desc: t('console.siliconflowDesc'), url: 'https://cloud.siliconflow.cn/' },
+  { name: t('console.zhipu'), desc: t('console.zhipuDesc'), url: 'https://open.bigmodel.cn/' },
+  { name: t('console.moonshot'), desc: t('console.moonshotDesc'), url: 'https://platform.moonshot.cn/' },
+  { name: t('console.volcengine'), desc: t('console.volcengineDesc'), url: 'https://console.volcengine.com/ark' },
+  { name: t('console.xfyun'), desc: t('console.xfyunDesc'), url: 'https://console.xfyun.cn/' },
+  { name: 'OpenAI', desc: 'gpt', url: 'https://platform.openai.com/' },
+  { name: 'Anthropic', desc: 'claude', url: 'https://console.anthropic.com/' },
+  { name: 'Google AI Studio', desc: 'gemini', url: 'https://aistudio.google.com/' },
+])
 
 function open(c: { name: string; url: string }) {
   window.open(c.url, '_blank', 'noopener')
@@ -23,8 +26,8 @@ function open(c: { name: string; url: string }) {
 <template>
   <div class="popover-mask" @click="emit('close')">
     <div class="console-pop" @click.stop>
-      <h3 class="console-title">模型控制台</h3>
-      <p class="console-subtitle">点击跳转到对应平台的控制台（系统浏览器打开）</p>
+      <h3 class="console-title">{{ t('models.console') }}</h3>
+      <p class="console-subtitle">{{ t('console.subtitle') }}</p>
       <div class="console-list">
         <button v-for="c in CONSOLES" :key="c.url" type="button" class="console-item" @click="open(c)">
           <span class="console-info">

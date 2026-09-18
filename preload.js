@@ -17,10 +17,19 @@ contextBridge.exposeInMainWorld('agentTeam', {
   exportBackup: (targetDir) => ipcRenderer.invoke('data:export', targetDir ?? null),
   importBackup: (backupDir) => ipcRenderer.invoke('data:import', backupDir ?? null),
   openDataDir: () => ipcRenderer.invoke('data:open-dir'),
+  // 打开本机文件/文件夹（工作区文件快捷打开）；返回 { ok, error? }
+  openPath: (p) => ipcRenderer.invoke('shell:open-path', p),
+  // 粘贴附件支持：statPath 判定是否文件夹；saveClipboardImage 把无源剪贴板图片写入临时文件并返回路径
+  statPath: (p) => ipcRenderer.invoke('shell:stat', p),
+  saveClipboardImage: (buf) => ipcRenderer.invoke('clipboard:save-image', buf),
   // 原生文件选择：pickFiles 返回路径数组，pickDirectory 返回单个路径，取消均返回 null
   pickFiles: (opts) => ipcRenderer.invoke('dialog:pick', { mode: 'file', ...opts }),
   pickDirectory: (opts) =>
     ipcRenderer.invoke('dialog:pick', { mode: 'dir', ...opts }).then((r) => (r ? r[0] : null)),
+  // 系统设置：开机自启状态读取与切换（getLoginItem 返回当前是否自启）；主题外观切换并持久化
+  getLoginItem: () => ipcRenderer.invoke('app:get-login-item'),
+  setLoginItem: (open) => ipcRenderer.invoke('app:set-login-item', open),
+  setTheme: (theme) => ipcRenderer.invoke('system:set-theme', theme),
   // 拖拽文件转本机绝对路径（Electron 44 起 File.path 已移除）；非桌面模式下无此方法
   pathForFile: (file) => webUtils.getPathForFile(file),
   // 自绘红绿灯（macOS）：侧边栏顶部按钮触发的窗口控制

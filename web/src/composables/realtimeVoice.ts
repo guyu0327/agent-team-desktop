@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { apiWsUrl } from '@/api/base'
 import { getAsrStreamSettings } from '@/api/asr'
+import { t } from '@/i18n'
 
 export type RealtimePhase = 'idle' | 'connecting' | 'streaming'
 
@@ -176,7 +177,7 @@ export function useRealtimeVoice() {
         partialText.value = ''
         break
       case 'error':
-        fail(msg.message ?? '实时识别出错')
+        fail(msg.message ?? t('chat.voiceError'))
         break
       case 'end':
         finish()
@@ -195,7 +196,7 @@ export function useRealtimeVoice() {
     stopping.value = false
     try {
       if (typeof AudioWorkletNode === 'undefined') {
-        throw new Error('当前浏览器不支持实时识别（需要 AudioWorklet 与安全上下文）')
+        throw new Error(t('chat.voiceUnsupported'))
       }
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
@@ -206,13 +207,13 @@ export function useRealtimeVoice() {
       ws.onclose = () => {
         if (ws && phase.value === 'streaming') {
           if (stopped) finish()
-          else fail('转写连接已断开，已保留已识别文字')
+          else fail(t('chat.voiceDisconnected'))
         }
       }
       await new Promise<void>((resolve, reject) => {
-        if (!ws) return reject(new Error('连接已取消'))
+        if (!ws) return reject(new Error(t('chat.voiceCanceled')))
         ws.onopen = () => resolve()
-        ws.onerror = () => reject(new Error('无法连接实时识别服务'))
+        ws.onerror = () => reject(new Error(t('chat.voiceConnectFailed')))
       })
 
       workletUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }))
@@ -239,7 +240,7 @@ export function useRealtimeVoice() {
     } catch (e) {
       cleanup()
       partialText.value = ''
-      onErrorCb?.(e instanceof Error ? e.message : '实时识别启动失败')
+      onErrorCb?.(e instanceof Error ? e.message : t('chat.voiceStartFailed'))
     }
   }
 

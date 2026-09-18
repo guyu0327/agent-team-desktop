@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { alertAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
+import { t } from '@/i18n'
 
 const emit = defineEmits<{
   close: []
@@ -30,7 +31,7 @@ async function save() {
     await userStore.updateProfile(nameDraft.value, signatureDraft.value)
     emit('close')
   } catch (err) {
-    alertAction(err instanceof Error ? err.message : '保存失败')
+    alertAction(err instanceof Error ? err.message : t('profile.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -48,37 +49,37 @@ function cancel() {
 
       <template v-if="!editing">
         <h2 class="name">{{ userStore.user.name }}</h2>
-        <p class="uid">账号：{{ userStore.user.id }}</p>
-        <p class="signature">{{ userStore.user.signature || '这个人很懒，什么都没写~' }}</p>
-        <button class="edit-btn" @click="startEdit">编辑资料</button>
+        <p class="uid">{{ t('profile.uid', { id: userStore.user.id }) }}</p>
+        <p class="signature">{{ userStore.user.signature || t('profile.emptySignature') }}</p>
+        <button class="edit-btn" @click="startEdit">{{ t('profile.editProfile') }}</button>
       </template>
 
       <template v-else>
         <div class="field">
-          <label class="label">用户名</label>
+          <label class="label">{{ t('profile.nameLabel') }}</label>
           <input
             ref="nameInput"
             v-model="nameDraft"
             class="input"
-            placeholder="输入用户名"
+            :placeholder="t('profile.namePlaceholder')"
             maxlength="20"
             @keyup.enter="save"
           />
         </div>
         <div class="field">
-          <label class="label">个性签名</label>
+          <label class="label">{{ t('profile.signatureLabel') }}</label>
           <input
             v-model="signatureDraft"
             class="input"
-            placeholder="输入个性签名"
+            :placeholder="t('profile.signaturePlaceholder')"
             maxlength="50"
             @keyup.enter="save"
           />
         </div>
         <div class="actions">
-          <button class="btn" @click="cancel">取消</button>
+          <button class="btn" @click="cancel">{{ t('common.cancel') }}</button>
           <button class="btn primary" :disabled="!nameDraft.trim() || saving" @click="save">
-            {{ saving ? '保存中…' : '保存' }}
+            {{ saving ? t('settings.saving') : t('common.save') }}
           </button>
         </div>
       </template>

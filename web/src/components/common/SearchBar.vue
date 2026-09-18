@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { t } from '@/i18n'
+
 defineProps<{ modelValue: string; placeholder?: string }>()
 defineEmits<{ 'update:modelValue': [value: string] }>()
 </script>
@@ -12,7 +14,7 @@ defineEmits<{ 'update:modelValue': [value: string] }>()
     <input
       type="text"
       :value="modelValue"
-      :placeholder="placeholder ?? '搜索'"
+      :placeholder="placeholder ?? t('common.search')"
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
   </div>

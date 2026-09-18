@@ -13,12 +13,15 @@ import MessageBubble from '@/components/common/MessageBubble.vue'
 import FileGrantsPopover from '@/components/common/FileGrantsPopover.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ChatMenu from './components/ChatMenu.vue'
+import HistoryPopover from './components/HistoryPopover.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import { formatDividerTime } from '@/utils/time'
 import { fsContentUrl, isImagePath } from '@/utils/image'
 import { copyImage, copyText } from '@/utils/clipboard'
+import { showToast } from '@/composables/toast'
 import { desktop, pathBasename } from '@/api/desktop'
 import { useRealtimeVoice } from '@/composables/realtimeVoice'
+import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
 
@@ -35,6 +38,7 @@ const draft = ref('')
 const listRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
 const menuOpen = ref(false)
+const showHistory = ref(false)
 const showGrants = ref(false)
 const pendingAttachments = ref<Attachment[]>([])
 
@@ -55,10 +59,10 @@ watch(conversation, (conv) => {
 
 const title = computed(() => {
   const conv = conversation.value
-  if (!conv) return '聊天'
+  if (!conv) return t('chat.title')
   if (conv.type === 'group') return conv.name
   const agent = conv.agentId ? agentStore.getById(conv.agentId) : undefined
-  return agent?.name ?? '已删除的智能体'
+  return agent?.name ?? t('common.deletedAgent')
 })
 
 const singleAgent = computed(() => {
@@ -78,7 +82,7 @@ const discussing = computed(() => conversationStore.isDiscussing(props.id))
 
 const imageAgentName = computed(() => conversationStore.isGeneratingImage(props.id))
 
-// 消息气泡右键菜单：imgSrc 非空表示右键点在气泡内的图片上，额外提供复制图片
+// 消息气泡右键菜单（仅气泡本体）：imgSrc 非空表示右键点在气泡内的图片上，额外提供复制图片
 const msgCtx = ref<{ x: number; y: number; msg: Message; imgSrc: string | null } | null>(null)
 
 function openMsgCtx(e: MouseEvent, msg: Message) {
@@ -86,10 +90,27 @@ function openMsgCtx(e: MouseEvent, msg: Message) {
   msgCtx.value = { x: e.clientX, y: e.clientY, msg, imgSrc: imgEl?.getAttribute('src') ?? null }
 }
 
+// 头像右键菜单：@ 该成员
+const avatarCtx = ref<{ x: number; y: number; agent: Agent } | null>(null)
+
+function openAvatarCtx(e: MouseEvent, msg: Message) {
+  const agent = agentStore.getById(msg.senderId)
+  if (!agent) return
+  avatarCtx.value = { x: e.clientX, y: e.clientY, agent }
+}
+
+const avatarCtxItems = computed(() =>
+  avatarCtx.value ? [{ key: 'mention', label: `@${avatarCtx.value.agent.name}` }] : [],
+)
+
+function onAvatarCtxSelect(key: string) {
+  if (key === 'mention' && avatarCtx.value) insertIntoDraft(`@${avatarCtx.value.agent.name} `)
+}
+
 const msgCtxItems = computed(() => {
   if (!msgCtx.value) return []
-  const items = [{ key: 'copy-text', label: '复制文字' }]
-  if (msgCtx.value.imgSrc) items.push({ key: 'copy-image', label: '复制图片' })
+  const items = [{ key: 'copy-text', label: t('chat.copyText') }]
+  if (msgCtx.value.imgSrc) items.push({ key: 'copy-image', label: t('chat.copyImage') })
   return items
 })
 
@@ -99,47 +120,48 @@ async function onMsgCtxSelect(key: string) {
   try {
     if (key === 'copy-text') {
       await copyText(ctx.msg.content)
+      showToast(t('chat.copied'))
     } else if (key === 'copy-image' && ctx.imgSrc) {
       await copyImage(ctx.imgSrc)
+      showToast(t('chat.imageCopied'))
     }
   } catch (err) {
-    alertAction(err instanceof Error ? err.message : '复制失败')
+    alertAction(err instanceof Error ? err.message : t('chat.copyFailed'))
   }
 }
 
 const pendingRequests = computed(() => conversationStore.pendingOpRequests(props.id))
 
-const OP_TITLES: Record<OpRequest['opType'], string> = {
-  write: '请求写入文件',
-  edit: '请求修改文件',
-  shell: '请求执行终端命令',
-}
-
 async function decideOp(r: OpRequest, decision: 'once' | 'conversation' | 'deny') {
   try {
-    const res = await conversationStore.decideOpRequest(props.id, r.requestId, decision)
-    if (!res.applied) alertAction('该请求已失效（等待超时或已被处理）')
+    await conversationStore.decideOpRequest(props.id, r, decision)
   } catch (err) {
-    alertAction(err instanceof Error ? err.message : '操作失败')
+    alertAction(err instanceof Error ? err.message : t('common.opFailed'))
   }
 }
+
+const OP_TITLES = computed<Record<OpRequest['opType'], string>>(() => ({
+  write: t('chat.opWrite'),
+  edit: t('chat.opEdit'),
+  shell: t('chat.opShell'),
+}))
 
 const configTip = computed(() => {
   const agent = singleAgent.value
   if (!agent) return null
   const preset = agent.presetId ? presetStore.findById(agent.presetId) : undefined
-  if (!preset) return `「${agent.name}」还未关联模型预设`
+  if (!preset) return t('chat.configNoPreset', { name: agent.name })
   if (!preset.baseUrl.trim() || !preset.hasKey) {
-    return `「${agent.name}」的模型预设缺少 API 地址或 Key`
+    return t('chat.configNoApi', { name: agent.name })
   }
   return null
 })
 
 const inputPlaceholder = computed(() => {
   if (conversation.value?.type === 'group') {
-    return '输入消息，@成员名 可指定回答，Enter 发送'
+    return t('chat.phGroup')
   }
-  return '输入消息，Enter 发送，Shift+Enter 换行'
+  return t('chat.phSingle')
 })
 
 const memberAgents = computed<Agent[]>(() => {
@@ -202,6 +224,28 @@ function pickMention(agent: Agent) {
     const caret = (before + insert).length
     el.setSelectionRange(caret, caret)
   })
+}
+
+/** 在光标处插入文本并聚焦（点头像 @ 成员等场景） */
+function insertIntoDraft(text: string) {
+  const el = inputRef.value
+  const pos = el?.selectionStart ?? draft.value.length
+  const end = el?.selectionEnd ?? pos
+  const before = draft.value.slice(0, pos)
+  const after = draft.value.slice(end)
+  draft.value = before + text + after
+  nextTick(() => {
+    el?.focus()
+    const caret = (before + text).length
+    el?.setSelectionRange(caret, caret)
+  })
+}
+
+/** 群聊中左键点成员头像：直接 @ 对方 */
+function mentionFromAvatar(msg: Message) {
+  if (conversation.value?.type !== 'group' || isSelf(msg)) return
+  const agent = agentStore.getById(msg.senderId)
+  if (agent) insertIntoDraft(`@${agent.name} `)
 }
 
 // 实时转写：按住麦克风说话，识别文本实时刷新到草稿尾部（tailLen 剥离法，不干扰用户编辑头部）
@@ -270,10 +314,10 @@ onBeforeUnmount(() => {
 })
 
 const micTitle = computed(() => {
-  if (rtPhase.value === 'streaming') return rtStopping.value ? '转写收尾中…' : '松开结束'
-  if (rtPhase.value === 'connecting') return '正在连接实时识别…'
-  if (!rtConfigured.value) return '未配置实时语音识别，点击前往设置'
-  return '按住说话，实时转写'
+  if (rtPhase.value === 'streaming') return rtStopping.value ? t('chat.voiceFinishing') : t('chat.voiceHoldStop')
+  if (rtPhase.value === 'connecting') return t('chat.voiceConnecting')
+  if (!rtConfigured.value) return t('chat.voiceNotConfigured')
+  return t('chat.voiceHold')
 })
 
 function shouldShowDivider(index: number): boolean {
@@ -287,15 +331,15 @@ function isSelf(msg: Message): boolean {
 
 function senderInfo(msg: Message): { name: string; avatar?: string } {
   if (isSelf(msg)) {
-    return { name: userStore.user?.name ?? '我', avatar: userStore.user?.avatar }
+    return { name: userStore.user?.name ?? t('chat.replySelf'), avatar: userStore.user?.avatar }
   }
   const agent = agentStore.getById(msg.senderId)
-  return { name: agent?.name ?? '未知智能体', avatar: agent?.avatar }
+  return { name: agent?.name ?? t('common.unknownAgent'), avatar: agent?.avatar }
 }
 
 function senderBadge(msg: Message): string | undefined {
   if (isSelf(msg)) return undefined
-  return agentStore.getById(msg.senderId)?.isOrchestrator ? '编排者' : undefined
+  return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
 }
 
 /** 贴底自动滚动：用户上翻即暂停，滚回底部（或发消息/切会话）后恢复 */
@@ -367,7 +411,7 @@ async function handleSend() {
   } catch (err) {
     draft.value = content
     pendingAttachments.value = attachments
-    alertAction(err instanceof Error ? err.message : '发送失败')
+    alertAction(err instanceof Error ? err.message : t('chat.sendFailed'))
   }
 }
 
@@ -390,19 +434,19 @@ function addPaths(paths: string[], type: 'file' | 'dir') {
 
 async function pickFiles() {
   try {
-    const paths = await desktop.pickFiles({ title: '选择文件', multi: true })
+    const paths = await desktop.pickFiles({ title: t('chat.pickFiles'), multi: true })
     if (paths) addPaths(paths, 'file')
   } catch (e) {
-    alertAction(e instanceof Error ? e.message : '选择文件失败')
+    alertAction(e instanceof Error ? e.message : t('chat.pickFilesFailed'))
   }
 }
 
 async function pickFolder() {
   try {
-    const dir = await desktop.pickDirectory({ title: '选择文件夹' })
+    const dir = await desktop.pickDirectory({ title: t('chat.pickFolder') })
     if (dir) addPaths([dir], 'dir')
   } catch (e) {
-    alertAction(e instanceof Error ? e.message : '选择文件夹失败')
+    alertAction(e instanceof Error ? e.message : t('chat.pickFolderFailed'))
   }
 }
 
@@ -439,7 +483,7 @@ function onDrop(e: DragEvent) {
   const items = e.dataTransfer?.items
   if (!items || items.length === 0) return
   if (!desktop.pathForFile) {
-    alertAction('拖拽添加附件需在桌面客户端中使用')
+    alertAction(t('chat.dropNeedsDesktop'))
     return
   }
   // entry 离开本事件即失效，必须同步消费，不得 await
@@ -455,22 +499,54 @@ function onDrop(e: DragEvent) {
   if (entries.length > 0) addEntries(entries)
 }
 
+/** 粘贴添加附件：资源管理器复制的文件/文件夹直接取路径；截图等无源图片落盘临时目录 */
+async function onPaste(e: ClipboardEvent) {
+  const files = e.clipboardData?.files
+  if (!files || files.length === 0) return
+  if (!desktop.pathForFile) return
+  e.preventDefault()
+  const entries: { path: string; type: 'file' | 'dir' }[] = []
+  for (const file of Array.from(files)) {
+    const path = desktop.pathForFile(file)
+    if (path) {
+      entries.push({ path, type: 'file' })
+      continue
+    }
+    if (!file.type.startsWith('image/') || !desktop.saveClipboardImage) continue
+    const buf = new Uint8Array(await file.arrayBuffer())
+    const r = await desktop.saveClipboardImage(buf)
+    if (r.ok && r.path) entries.push({ path: r.path, type: 'file' })
+  }
+  if (entries.length === 0) return
+  // File API 区分不了文件夹，用主进程 stat 修正，避免粘贴的文件夹显示成文件图标
+  if (desktop.statPath) {
+    for (const en of entries) {
+      const st = await desktop.statPath(en.path)
+      if (st.ok) en.type = st.isDir ? 'dir' : 'file'
+    }
+  }
+  addEntries(entries)
+}
+
 async function handleStopCoordination() {
-  const name = coordinator.value?.name
+  const name = coordinator.value?.name ?? t('common.orchestrator')
   const ok = await confirmAction({
-    title: '终止',
-    message: discussing.value
-      ? '确定要终止正在进行的自由讨论吗？已产生的发言会保留。'
-      : `确定要终止「${name ?? '编排者'}」正在进行的协作吗？已产生的输出会保留。`,
-    confirmText: '终止',
+    title: t('chat.stop'),
+    message: discussing.value ? t('chat.stopDiscussMsg') : t('chat.stopCoordMsg', { name }),
+    confirmText: t('chat.stop'),
     danger: true,
   })
   if (!ok) return
   try {
     const res = await stopOrchestration(props.id)
-    if (!res.stopped) alertAction('当前没有进行中的协作')
+    if (!res.stopped) {
+      alertAction(t('chat.noActiveCoord'))
+      return
+    }
+    // 后端已把待审批请求按拒绝唤醒，这里同步关闭本会话残留的卡片
+    conversationStore.clearOpRequests(props.id)
   } catch (err) {
-    alertAction(err instanceof Error ? err.message : '终止失败')
+    alertAction(err instanceof Error ? err.message : t('chat.stopFailed'))
   }
 }
 
@@ -513,17 +589,34 @@ function onKeydown(e: KeyboardEvent) {
       <span class="title">
         {{ title }}
         <span v-if="conversation?.type === 'group'" class="member-count">
-          （{{ conversation.memberIds.length }}人）
+          {{ t('chat.memberCount', { n: conversation.memberIds.length }) }}
         </span>
       </span>
       <div class="more-wrap">
-        <button class="more" title="聊天信息" @click.stop="menuOpen = !menuOpen">
+        <button
+          v-if="conversation?.type === 'single' && conversation?.agentId"
+          class="more"
+          :title="t('nav.history')"
+          @click.stop="showHistory = !showHistory"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3.5 7.5" />
+            <path d="M3 3v5h5" />
+            <path d="M12 7v5l3.5 2" />
+          </svg>
+        </button>
+        <button class="more" :title="t('chat.menu')" @click.stop="menuOpen = !menuOpen">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <circle cx="5" cy="12" r="1.8" />
             <circle cx="12" cy="12" r="1.8" />
             <circle cx="19" cy="12" r="1.8" />
           </svg>
         </button>
+        <HistoryPopover
+          v-if="showHistory && conversation?.agentId"
+          :agent-id="conversation.agentId"
+          @close="showHistory = false"
+        />
         <ChatMenu
           v-if="menuOpen && conversation"
           :conversation="conversation"
@@ -546,7 +639,10 @@ function onKeydown(e: KeyboardEvent) {
             :badge="senderBadge(msg)"
             :show-name="conversation?.type === 'group' && !isSelf(msg)"
             :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
-            @contextmenu.prevent="openMsgCtx($event, msg)"
+            :mentionable="conversation?.type === 'group' && !isSelf(msg)"
+            @bubble-menu="openMsgCtx($event, msg)"
+            @avatar-click="mentionFromAvatar(msg)"
+            @avatar-menu="openAvatarCtx($event, msg)"
           />
         </template>
         <ContextMenu
@@ -557,15 +653,23 @@ function onKeydown(e: KeyboardEvent) {
           @select="onMsgCtxSelect"
           @close="msgCtx = null"
         />
+        <ContextMenu
+          v-if="avatarCtx"
+          :x="avatarCtx.x"
+          :y="avatarCtx.y"
+          :items="avatarCtxItems"
+          @select="onAvatarCtxSelect"
+          @close="avatarCtx = null"
+        />
         <div v-if="imageAgentName" class="image-gen-tip">
           <span class="ring" />
-          <span class="text">「{{ imageAgentName }}」正在生成图片</span>
+          <span class="text">{{ t('chat.imgGen', { name: imageAgentName }) }}</span>
           <span class="dots"><i /><i /><i /></span>
         </div>
-        <div v-if="messages.length === 0" class="empty">暂无消息，开始聊天吧</div>
+        <div v-if="messages.length === 0" class="empty">{{ t('chat.emptyMsg') }}</div>
       </div>
 
-      <button v-if="!stickToBottom" class="to-bottom" title="回到底部" @click="jumpToBottom">
+      <button v-if="!stickToBottom" class="to-bottom" :title="t('chat.toBottom')" @click="jumpToBottom">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 5v14M19 12l-7 7-7-7" />
         </svg>
@@ -574,17 +678,17 @@ function onKeydown(e: KeyboardEvent) {
 
     <div v-if="coordinator || discussing" class="coordination-tip">
       <span class="pulse"></span>
-      <span v-if="coordinator">「{{ coordinator.name }}」正在协调团队…</span>
-      <span v-else>自由讨论中，成员正在接龙发言…</span>
-      <button class="stop-btn" @click="handleStopCoordination">终止</button>
+      <span v-if="coordinator">{{ t('chat.coordinating', { name: coordinator.name }) }}</span>
+      <span v-else>{{ t('chat.discussingTip') }}</span>
+      <button class="stop-btn" @click="handleStopCoordination">{{ t('chat.stop') }}</button>
     </div>
 
     <div v-if="configTip && singleAgent" class="config-tip">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
         <path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linecap="round" />
       </svg>
-      <span>{{ configTip }}，</span>
-      <router-link :to="`/contact/${singleAgent.id}`" class="link">去配置</router-link>
+      <span>{{ configTip }}</span>
+      <router-link :to="`/contact/${singleAgent.id}`" class="link">{{ t('chat.goConfig') }}</router-link>
     </div>
 
     <div v-if="pendingRequests.length > 0" class="op-requests">
@@ -593,14 +697,14 @@ function onKeydown(e: KeyboardEvent) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linecap="round" />
           </svg>
-          <span class="op-title">「{{ r.agentName }}」{{ OP_TITLES[r.opType] ?? '请求执行受控操作' }}</span>
+          <span class="op-title">「{{ r.agentName }}」{{ OP_TITLES[r.opType] ?? t('chat.opOther') }}</span>
         </div>
         <div v-if="r.target" class="op-target">{{ r.target }}</div>
         <pre v-if="r.detail" class="op-detail">{{ r.detail }}</pre>
         <div class="op-actions">
-          <button class="op-btn deny" @click="decideOp(r, 'deny')">拒绝</button>
-          <button class="op-btn conv" @click="decideOp(r, 'conversation')">本会话允许</button>
-          <button class="op-btn once" @click="decideOp(r, 'once')">允许一次</button>
+          <button class="op-btn deny" @click="decideOp(r, 'deny')">{{ t('chat.opDeny') }}</button>
+          <button class="op-btn conv" @click="decideOp(r, 'conversation')">{{ t('chat.opAllowConv') }}</button>
+          <button class="op-btn once" @click="decideOp(r, 'once')">{{ t('chat.opAllowOnce') }}</button>
         </div>
       </div>
     </div>
@@ -613,9 +717,9 @@ function onKeydown(e: KeyboardEvent) {
       @dragleave="onDragLeave"
       @drop="onDrop"
     >
-      <div v-if="isDragging" class="drop-hint">松开鼠标，添加为附件</div>
+      <div v-if="isDragging" class="drop-hint">{{ t('chat.dropHint') }}</div>
       <div v-if="mentionCandidates.length > 0" class="mention-popup">
-        <div class="mention-title">选择要 @ 的成员</div>
+        <div class="mention-title">{{ t('chat.pickMentionAt') }}</div>
         <button
           v-for="(m, i) in mentionCandidates"
           :key="m.id"
@@ -644,26 +748,26 @@ function onKeydown(e: KeyboardEvent) {
             <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5" />
           </svg>
           <span class="attach-name">{{ att.name }}</span>
-          <button class="attach-remove" title="移除" @click="removeAttachment(att.path)">✕</button>
+          <button class="attach-remove" :title="t('common.remove')" @click="removeAttachment(att.path)">✕</button>
         </span>
       </div>
-      <div v-if="rtPhase === 'streaming' && rtStopping" class="voice-status">转写收尾中…</div>
+      <div v-if="rtPhase === 'streaming' && rtStopping" class="voice-status">{{ t('chat.voiceFinishing') }}</div>
       <div v-else-if="rtPhase === 'streaming'" class="voice-status recording">
-        ● {{ rtElapsed }}s · 实时转写中 · 松开结束
+        ● {{ t('chat.voiceLive', { s: rtElapsed }) }}
       </div>
-      <div v-else-if="rtPhase === 'connecting'" class="voice-status">实时识别连接中…</div>
+      <div v-else-if="rtPhase === 'connecting'" class="voice-status">{{ t('chat.voiceConnecting') }}</div>
       <div class="toolbar">
-        <span class="tool" title="发送文件" @click="pickFiles">
+        <span class="tool" :title="t('chat.pickFiles')" @click="pickFiles">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zm0 0v5h5" />
           </svg>
         </span>
-        <span class="tool" title="发送文件夹" @click="pickFolder">
+        <span class="tool" :title="t('chat.pickFolder')" @click="pickFolder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
           </svg>
         </span>
-        <span class="tool" title="会话文件授权" @click="showGrants = !showGrants">
+        <span class="tool" :title="t('chat.fileGrants')" @click="showGrants = !showGrants">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" />
             <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
@@ -692,10 +796,11 @@ function onKeydown(e: KeyboardEvent) {
         @click="syncMention"
         @keyup="syncMention"
         @keydown="onKeydown"
+        @paste="onPaste"
       />
       <div class="send-row">
         <button class="send-btn" :disabled="!draft.trim() && pendingAttachments.length === 0" @click="handleSend">
-          发送
+          {{ t('chat.send') }}
         </button>
       </div>
 
@@ -824,7 +929,8 @@ function onKeydown(e: KeyboardEvent) {
   align-items: center;
   gap: $spacing-sm;
   width: fit-content;
-  margin: $spacing-sm 0;
+  /* 与消息气泡对齐：让出头像宽度（36px）+ 头像与气泡的间距 */
+  margin: $spacing-sm 0 $spacing-sm calc(36px + #{$spacing-md});
   padding: 8px $spacing-md;
   border-radius: $radius-md;
   background: $bg-panel;
@@ -835,7 +941,7 @@ function onKeydown(e: KeyboardEvent) {
     height: 14px;
     flex-shrink: 0;
     border-radius: 50%;
-    border: 2px solid rgba($primary-color, 0.25);
+    border: 2px solid rgba(var(--c-primary-rgb), 0.25);
     border-top-color: $primary-color;
     animation: image-gen-spin 0.9s linear infinite;
   }
@@ -1082,7 +1188,7 @@ function onKeydown(e: KeyboardEvent) {
   &.dragging {
     outline: 2px dashed $primary-color;
     outline-offset: -6px;
-    background: rgba($primary-color, 0.06);
+    background: rgba(var(--c-primary-rgb), 0.06);
   }
 }
 
@@ -1096,7 +1202,7 @@ function onKeydown(e: KeyboardEvent) {
   pointer-events: none;
   color: $primary-color;
   font-size: $font-size-sm;
-  background: rgba($bg-panel, 0.85);
+  background: rgba(var(--c-panel-rgb), 0.85);
   border-radius: inherit;
 }
 

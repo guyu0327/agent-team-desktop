@@ -7,12 +7,25 @@
 - [agent-team-server](https://github.com/guyu0327/agent-team-server)：Spring Boot 后端（编排、会话、消息、SSE）
 - [agent-team-web](https://github.com/guyu0327/agent-team-web)：Vue 3 前端（类微信界面）——已并入本仓库 `web/` 子目录，原仓库已归档
 
+## 主要功能
+
+- 多语言界面：中文 / English 一键切换，全部界面文案接入 i18n
+- 深浅色主题：整站换肤，Windows 自绘标题条配色同步，重启记忆上次选择
+- 单聊与群聊：群聊支持自由讨论、编排者协作、成员 @ 与置顶；群内左键点头像即可 @ 对方
+- 历史会话：删除/解散/开始新会话的聊天自动归档到「历史会话」，可按日期分组、搜索、查看完整记录、继续聊天或彻底删除
+- 模型预设与文生图：支持 OpenAI 兼容对话与 DashScope / OpenAI Images / 硅基流动文生图协议
+- 受控操作审批：写入/修改文件、执行终端命令前弹卡片询问（允许一次 / 本会话允许 / 拒绝），「本会话允许」会批量放行同类待审批
+- 实时语音转写：按住麦克风边说边出字（讯飞流式听写）
+- 运行日志：设置页「数据管理」可查看后端关键日志，按类型/时间范围筛选
+- 协作限制：设置页可配置编排协作与自由讨论的整体/单成员超时（默认 60/5 分钟）
+- 系统设置：开机自启、深浅色主题、语言切换；工作区文件与授权目录可一键用系统默认方式打开
+
 ## 架构
 
 ```
 agent-team-desktop（本项目，Electron 壳）
-├── main.js               主进程：拉起/监控后端、启动等待页、单实例锁、本地访问令牌、双平台自绘标题栏（Windows 弱化标题条 / macOS 自绘红绿灯）
-├── preload.js            向渲染进程注入 window.agentTeam（apiBase + token、原生文件选择、pathForFile 拖拽路径解析）
+├── main.js               主进程：拉起/监控后端、启动等待页、单实例锁、本地访问令牌、双平台自绘标题栏（Windows 弱化标题条 / macOS 自绘红绿灯）、系统设置（主题/开机自启）
+├── preload.js            向渲染进程注入 window.agentTeam（apiBase + token、原生文件选择、pathForFile 拖拽路径解析、剪贴板图片落盘、shell openPath）
 ├── boot.html             后端就绪前的启动等待页
 ├── web/                  Vue 3 前端源码（git subtree 并入，构建产物 web/dist 不入库）
 └── resources/            后端与 JRE 产物（不入库，见下方「产物同步」）
@@ -35,7 +48,7 @@ agent-team-desktop（本项目，Electron 壳）
 
 托盘与关闭行为：应用常驻系统托盘（左键唤回主窗口，右键菜单：显示主窗口 / 退出）。点关闭（Windows 系统按钮、macOS 自绘红绿灯）弹出应用内样式的确认框——最小化到托盘（后端继续运行）或退出（结束后端），勾选「不再询问」后按所选动作直接执行（记忆在前端 localStorage）。外部 http(s) 链接（如模型控制台）统一交给系统默认浏览器打开。
 
-自绘标题栏：双平台均隐藏原生标题栏由应用自绘——Windows 用 `titleBarOverlay` 保留系统绘制最小化/最大化/关闭按钮，图标+名称+版本号由前端绘成低亮度标题条；macOS 用 `hiddenInset` 隐藏原生栏，前端在侧边栏自绘红绿灯（关闭/最小化/缩放），顶部搜索栏、标题栏等区域标记 `drag-region` 可拖动窗口。
+自绘标题栏：双平台均隐藏原生标题栏由应用自绘——Windows 用 `titleBarOverlay` 保留系统绘制最小化/最大化/关闭按钮，图标+名称+版本号由前端绘成低亮度标题条（深浅色主题切换时系统按钮配色同步）；macOS 用 `hiddenInset` 隐藏原生栏，前端在侧边栏自绘红绿灯（关闭/最小化/缩放），顶部搜索栏、标题栏等区域标记 `drag-region` 可拖动窗口。
 
 应用图标：`build/icon.ico` / `build/icon.png` 为唯一来源——rcedit 写入 exe、开发态窗口/任务栏图标、托盘图标（打包态经 extraResources 复制到安装目录 resources）均取自这里；Windows 托盘用 ico，macOS 托盘不支持 ico 改用同源 png（自动缩放到菜单栏尺寸）。更换图标只需替换 `build/icon.png` 后执行 `node scripts/build-icon.js` 重新生成全尺寸高清 ico（ico 已入库，无需手动维护）。
 

@@ -6,6 +6,7 @@ import { useConversationStore } from '@/stores/conversation'
 import { useAgentStore } from '@/stores/agent'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { markRead } from '@/api/conversation'
+import { t } from '@/i18n'
 import SearchBar from '@/components/common/SearchBar.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ConversationItem from './components/ConversationItem.vue'
@@ -33,12 +34,12 @@ const convCtxItems = computed(() => {
   const c = convCtx.value?.conv
   if (!c) return []
   const items: { key: string; label: string; danger?: boolean }[] = [
-    { key: 'pin', label: c.pinned ? '取消置顶' : '置顶' },
+    { key: 'pin', label: c.pinned ? t('chat.unpin') : t('chat.pin') },
   ]
-  if (c.unreadCount > 0) items.push({ key: 'read', label: '标记已读' })
-  if (c.type === 'group') items.push({ key: 'rename', label: '重命名' })
-  else items.push({ key: 'reset', label: '清空聊天记录' })
-  items.push({ key: 'delete', label: c.type === 'group' ? '解散群聊' : '删除聊天', danger: true })
+  if (c.unreadCount > 0) items.push({ key: 'read', label: t('message.markRead') })
+  if (c.type === 'group') items.push({ key: 'rename', label: t('message.rename') })
+  else items.push({ key: 'newChat', label: t('message.newChat') })
+  items.push({ key: 'delete', label: c.type === 'group' ? t('message.disband') : t('message.deleteChat'), danger: true })
   return items
 })
 
@@ -63,27 +64,35 @@ async function onConvCtxSelect(key: string) {
     renameDraft.value = c.name
     return
   }
-  if (key === 'reset') {
+  if (key === 'newChat') {
     const ok = await confirmAction({
-      title: '清空聊天记录',
-      message: '确定清空该聊天的所有记录吗？清空后不可恢复。',
-      confirmText: '清空',
-      danger: true,
+      title: t('message.newChat'),
+      message: t('chat.newSessionMsg'),
+      confirmText: t('message.newChat'),
     })
-    if (ok) conversationStore.resetConversation(c.id)
+    if (!ok) return
+    try {
+      await conversationStore.archiveConversation(c.id)
+      if (c.agentId) {
+        const newId = await conversationStore.openConversationWith(c.agentId)
+        router.push(`/chat/${newId}`)
+      } else {
+        router.push('/chat')
+      }
+    } catch (e) {
+      alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+    }
     return
   }
   if (key === 'delete') {
     const isGroup = c.type === 'group'
     const ok = await confirmAction({
-      title: isGroup ? '解散群聊' : '删除聊天',
-      message: isGroup
-        ? `确定解散群聊「${c.name}」吗？\n群聊将被删除，所有聊天记录不可恢复。`
-        : '确定删除该聊天吗？聊天记录将一并删除。',
-      confirmText: isGroup ? '解散' : '删除',
+      title: isGroup ? t('message.disbandTitle') : t('message.deleteTitle'),
+      message: isGroup ? t('message.disbandMsg', { name: c.name }) : t('message.deleteMsg'),
+      confirmText: isGroup ? t('message.disbandOk') : t('common.delete'),
       danger: true,
     })
-    if (ok) conversationStore.removeConversation(c.id)
+    if (ok) conversationStore.archiveConversation(c.id)
   }
 }
 
@@ -96,14 +105,14 @@ async function saveRename() {
   try {
     await conversationStore.renameGroup(c.id, value)
   } catch (e) {
-    alertAction(e instanceof Error ? e.message : '重命名失败')
+    alertAction(e instanceof Error ? e.message : t('message.renameFailed'))
   }
 }
 
 function displayOf(c: Conversation): { name: string; avatar: string } {
   if (c.type === 'group') return { name: c.name, avatar: '👥' }
   const agent = c.agentId ? agentStore.getById(c.agentId) : undefined
-  return { name: agent?.name ?? '已删除的智能体', avatar: agent?.avatar ?? '' }
+  return { name: agent?.name ?? t('message.deletedAgent'), avatar: agent?.avatar ?? '' }
 }
 
 const filteredConversations = computed(() => {
@@ -124,7 +133,7 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
     <aside class="list-panel">
       <div class="panel-header drag-region">
         <SearchBar v-model="keyword" class="search" />
-        <button class="icon-btn" title="发起群聊" @click="showGroupModal = true">
+        <button class="icon-btn" :title="t('message.newGroup')" @click="showGroupModal = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <circle cx="12" cy="12" r="9" />
             <path d="M12 8v8M8 12h8" />
@@ -148,7 +157,7 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
             :pinned="!!c.pinned"
           />
         </router-link>
-        <div v-if="filteredConversations.length === 0" class="empty">无匹配的会话</div>
+        <div v-if="filteredConversations.length === 0" class="empty">{{ t('message.empty') }}</div>
         <ContextMenu
           v-if="convCtx"
           :x="convCtx.x"
@@ -165,7 +174,7 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
 
     <div v-if="renameTarget" class="rename-mask" @click.self="renameTarget = null">
       <div class="rename-card">
-        <h3 class="rename-title">重命名群聊</h3>
+        <h3 class="rename-title">{{ t('message.renameTitle') }}</h3>
         <input
           v-model="renameDraft"
           class="rename-input"
@@ -175,8 +184,8 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
           @keyup.esc="renameTarget = null"
         />
         <div class="rename-actions">
-          <button class="btn" @click="renameTarget = null">取消</button>
-          <button class="btn primary" @click="saveRename">保存</button>
+          <button class="btn" @click="renameTarget = null">{{ t('common.cancel') }}</button>
+          <button class="btn primary" @click="saveRename">{{ t('common.save') }}</button>
         </div>
       </div>
     </div>

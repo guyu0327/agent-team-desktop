@@ -6,6 +6,7 @@ import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { confirmAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
 
@@ -20,10 +21,10 @@ const metaRows = computed(() => {
   if (!agent.value) return []
   const preset = agent.value.presetId ? presetStore.findById(agent.value.presetId) : undefined
   return [
-    { label: '模型预设', value: preset ? preset.name : '未关联，聊天前需选择' },
-    { label: 'API 地址', value: preset ? preset.baseUrl : '未设置' },
-    { label: 'API Key', value: preset?.hasKey ? '已配置（由预设提供）' : '未配置' },
-    { label: '温度', value: String(agent.value.temperature) },
+    { label: t('contact.presetLabel'), value: preset ? preset.name : t('contact.noPresetChat') },
+    { label: t('contact.apiLabel'), value: preset ? preset.baseUrl : t('contact.notSet') },
+    { label: t('contact.keyLabel'), value: preset?.hasKey ? t('contact.keyConfigured') : t('contact.keyMissing') },
+    { label: t('contact.tempLabel'), value: String(agent.value.temperature) },
   ]
 })
 
@@ -36,9 +37,9 @@ async function startChat() {
 async function remove() {
   if (!agent.value) return
   const ok = await confirmAction({
-    title: '删除智能体',
-    message: `确定删除智能体「${agent.value.name}」吗？相关会话记录将一并删除。`,
-    confirmText: '删除',
+    title: t('contact.deleteWarn'),
+    message: t('contact.deleteMsg', { name: agent.value.name }),
+    confirmText: t('contact.deleteOk'),
     danger: true,
   })
   if (!ok) return
@@ -57,20 +58,20 @@ async function remove() {
           <div class="profile-title">
             <h2 class="name">
               {{ agent.name }}
-              <span v-if="agent.isOrchestrator" class="orch-chip">编排者</span>
+              <span v-if="agent.isOrchestrator" class="orch-chip">{{ t('common.orchestrator') }}</span>
             </h2>
-            <p class="desc">{{ agent.description || '暂无描述' }}</p>
+            <p class="desc">{{ agent.description || t('contact.noDesc') }}</p>
           </div>
         </div>
 
         <div class="meta-list">
           <div v-for="row in metaRows" :key="row.label" class="meta-row">
             <span class="label">{{ row.label }}</span>
-            <span class="value" :class="{ warn: row.value.startsWith('未配置') }">{{ row.value }}</span>
+            <span class="value" :class="{ warn: row.value === t('contact.keyMissing') }">{{ row.value }}</span>
           </div>
           <div class="meta-row column">
-            <span class="label">角色设定（System Prompt）</span>
-            <p class="prompt">{{ agent.systemPrompt || '未设置' }}</p>
+            <span class="label">{{ t('contact.promptLabel') }}</span>
+            <p class="prompt">{{ agent.systemPrompt || t('contact.noPrompt') }}</p>
           </div>
         </div>
 
@@ -79,14 +80,22 @@ async function remove() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
-            开始对话
+            {{ t('contact.startChat') }}
           </button>
-          <button class="action-btn" @click="router.push(`/contact/${agent.id}/edit`)">编辑</button>
-          <button class="action-btn danger" @click="remove">删除</button>
+          <button class="action-btn" @click="router.push(`/contact/${agent.id}/edit`)">{{ t('common.edit') }}</button>
+          <button class="action-btn" @click="router.push({ path: '/history', query: { agentId: agent.id } })">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 3-6.7L3.5 7.5" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l3.5 2" />
+            </svg>
+            {{ t('contact.history') }}
+          </button>
+          <button class="action-btn danger" @click="remove">{{ t('common.delete') }}</button>
         </div>
       </div>
     </template>
-    <div v-else class="not-found">智能体不存在或已被删除</div>
+    <div v-else class="not-found">{{ t('contact.notFound') }}</div>
   </div>
 </template>
 

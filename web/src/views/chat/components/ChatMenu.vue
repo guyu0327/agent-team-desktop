@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Agent, Conversation } from '@/types'
 import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{ conversation: Conversation }>()
 const emit = defineEmits<{ close: [] }>()
 
+const router = useRouter()
 const agentStore = useAgentStore()
 const conversationStore = useConversationStore()
 const presetStore = useModelPresetStore()
@@ -45,41 +48,62 @@ function togglePin() {
   emit('close')
 }
 
-async function resetChat() {
+/** 开始新会话：当前会话入历史，立即打开与该智能体的全新会话 */
+async function startNewChat() {
   const ok = await confirmAction({
-    title: '清空聊天记录',
-    message: '确定清空该聊天的所有记录吗？清空后不可恢复。',
-    confirmText: '清空',
-    danger: true,
+    title: t('chat.newSession'),
+    message: t('chat.newSessionMsg'),
+    confirmText: t('chat.newSession'),
   })
   if (!ok) return
-  conversationStore.resetConversation(props.conversation.id)
   emit('close')
+  try {
+    await conversationStore.archiveConversation(props.conversation.id)
+    const agentId = props.conversation.agentId
+    if (!agentId) {
+      router.push('/chat')
+      return
+    }
+    const newId = await conversationStore.openConversationWith(agentId)
+    router.push(`/chat/${newId}`)
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+  }
 }
 
 async function deleteChat() {
   const ok = await confirmAction({
-    title: '删除聊天',
-    message: '确定删除该聊天吗？聊天记录将一并删除。',
-    confirmText: '删除',
+    title: t('chat.deleteChat'),
+    message: t('chat.deleteChatMsg'),
+    confirmText: t('common.delete'),
     danger: true,
   })
   if (!ok) return
-  conversationStore.removeConversation(props.conversation.id)
   emit('close')
+  try {
+    await conversationStore.archiveConversation(props.conversation.id)
+    router.push('/chat')
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+  }
 }
 
 async function disbandGroup() {
-  const name = props.conversation.name || '该群聊'
+  const name = props.conversation.name || t('chat.thisGroup')
   const ok = await confirmAction({
-    title: '解散群聊',
-    message: `确定解散群聊「${name}」吗？\n群聊将被删除，所有聊天记录不可恢复。`,
-    confirmText: '解散',
+    title: t('chat.disband'),
+    message: t('chat.disbandMsg', { name }),
+    confirmText: t('chat.disbandOk'),
     danger: true,
   })
   if (!ok) return
-  conversationStore.removeConversation(props.conversation.id)
   emit('close')
+  try {
+    await conversationStore.archiveConversation(props.conversation.id)
+    router.push('/chat')
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+  }
 }
 
 function startEdit() {
@@ -94,7 +118,7 @@ async function toggleMode() {
   try {
     await conversationStore.setChatMode(props.conversation.id, next)
   } catch (e) {
-    alertAction(e instanceof Error ? e.message : '设置失败')
+    alertAction(e instanceof Error ? e.message : t('chat.modeFailed'))
   }
 }
 
@@ -135,7 +159,7 @@ function kick(agent: Agent) {
           :key="m.id"
           class="member-cell"
           :class="{ kickable: kicking }"
-          :title="kicking ? `移出 ${m.name}` : m.name"
+          :title="kicking ? t('chat.kickMember', { name: m.name }) : m.name"
           @click="kicking && kick(m)"
         >
           <div class="cell-avatar">
@@ -149,7 +173,7 @@ function kick(agent: Agent) {
           <span class="cell-name">{{ m.name }}</span>
         </div>
 
-        <button class="add-cell" title="拉人入群" @click="toggleAdd">
+        <button class="add-cell" :title="t('chat.addMember')" @click="toggleAdd">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -157,7 +181,7 @@ function kick(agent: Agent) {
         <button
           class="add-cell"
           :class="{ active: kicking }"
-          title="踢人"
+          :title="t('chat.kick')"
           @click="toggleKick"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -167,7 +191,7 @@ function kick(agent: Agent) {
       </div>
 
       <div v-if="adding" class="candidate-list">
-        <div class="section-title">选择要加入的智能体</div>
+        <div class="section-title">{{ t('chat.pickMember') }}</div>
         <button
           v-for="c in candidates"
           :key="c.id"
@@ -176,13 +200,13 @@ function kick(agent: Agent) {
         >
           <Avatar :name="c.name" :avatar="c.avatar" :size="28" />
           <span class="cand-name">{{ c.name }}</span>
-          <span class="cand-model">{{ presetStore.findById(c.presetId)?.name ?? '未关联预设' }}</span>
+          <span class="cand-model">{{ presetStore.findById(c.presetId)?.name ?? t('common.noPreset') }}</span>
         </button>
-        <div v-if="candidates.length === 0" class="empty">所有智能体都已在群里</div>
+        <div v-if="candidates.length === 0" class="empty">{{ t('chat.allInGroup') }}</div>
       </div>
 
       <div class="name-section">
-        <div class="section-title">群聊名称</div>
+        <div class="section-title">{{ t('chat.groupName') }}</div>
         <input
           v-if="editingName"
           v-model="nameDraft"
@@ -200,11 +224,11 @@ function kick(agent: Agent) {
       </div>
 
       <div class="mode-section">
-        <div class="section-title">群聊模式</div>
+        <div class="section-title">{{ t('chat.groupMode') }}</div>
         <button class="mode-row" @click="toggleMode">
           <span class="mode-info">
-            <span class="mode-name">自由讨论</span>
-            <span class="mode-desc">开启后成员接龙自由讨论，无需逐个 @；群里有编排者时仍由编排者协调</span>
+            <span class="mode-name">{{ t('chat.freeMode') }}</span>
+            <span class="mode-desc">{{ t('chat.freeModeDesc') }}</span>
           </span>
           <span class="switch" :class="{ on: currentMode === 'free' }"><span class="knob"></span></span>
         </button>
@@ -217,7 +241,7 @@ function kick(agent: Agent) {
               d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"
             />
           </svg>
-          {{ conversation.pinned ? '取消置顶' : '置顶' }}
+          {{ conversation.pinned ? t('chat.unpin') : t('chat.pin') }}
         </button>
       </div>
 
@@ -228,7 +252,7 @@ function kick(agent: Agent) {
               d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm12.6 3.4-1.4-1.4-1.4 1.4-1.1-1.1 1.4-1.4-1.4-1.4 1.1-1.1 1.4 1.4 1.4-1.4 1.1 1.1-1.4 1.4 1.4 1.4z"
             />
           </svg>
-          解散群聊
+          {{ t('chat.disband') }}
         </button>
       </div>
     </template>
@@ -240,21 +264,21 @@ function kick(agent: Agent) {
             d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"
           />
         </svg>
-        {{ conversation.pinned ? '取消置顶' : '置顶' }}
+        {{ conversation.pinned ? t('chat.unpin') : t('chat.pin') }}
       </button>
-      <button class="menu-item" @click="resetChat">
+      <button class="menu-item" @click="startNewChat">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path
             d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
           />
         </svg>
-        重置
+        {{ t('chat.newSession') }}
       </button>
       <button class="menu-item danger" @click="deleteChat">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
         </svg>
-        删除聊天
+        {{ t('chat.deleteChat') }}
       </button>
     </template>
   </div>

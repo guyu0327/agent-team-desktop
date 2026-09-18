@@ -35,6 +35,8 @@ export interface Conversation {
   lastMessage: string
   lastMessageTime: number | null
   unreadCount: number
+  /** 历史会话归档时间：非空表示已归档（仅历史会话接口返回） */
+  archivedTime?: number | null
 }
 
 /** 消息/授权共用的附件信息：path 为服务器上的真实绝对路径；image 类型可直接展示并交给视觉模型 */

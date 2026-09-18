@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 import { desktop } from '@/api/desktop'
 import { showCloseModal, dontAsk, chooseClose, requestClose } from '@/composables/closeConfirm'
+import { t } from '@/i18n'
 
 // 阻止浏览器/Electron 对文件拖拽的默认导航（打开文件）；输入区自身的 drop 处理不受影响
 const preventDragNavigation = (e: DragEvent) => e.preventDefault()
@@ -25,18 +26,18 @@ onBeforeUnmount(() => {
   <router-view />
   <div v-if="showCloseModal" class="close-mask">
     <div class="close-card">
-      <h3 class="close-title">关闭智群 AgentTeam</h3>
-      <p class="close-message">要最小化还是退出应用？</p>
+      <h3 class="close-title">{{ t('close.title') }}</h3>
+      <p class="close-message">{{ t('close.msg') }}</p>
       <p class="close-detail">
-        最小化后应用收入右下角托盘继续运行，点击托盘图标即可恢复；退出将结束后端服务，进行中的回复与协作会被中断。
+        {{ t('close.detail') }}
       </p>
       <div class="close-actions">
         <label class="close-remember">
           <input v-model="dontAsk" type="checkbox" />
-          不再询问
+          {{ t('close.dontAsk') }}
         </label>
-        <button class="close-btn" @click="chooseClose('minimize')">最小化到托盘</button>
-        <button class="close-btn quit" @click="chooseClose('quit')">退出</button>
+        <button class="close-btn" @click="chooseClose('minimize')">{{ t('close.minimize') }}</button>
+        <button class="close-btn quit" @click="chooseClose('quit')">{{ t('close.quit') }}</button>
       </div>
     </div>
   </div>

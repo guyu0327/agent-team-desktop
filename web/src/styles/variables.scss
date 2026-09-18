@@ -1,30 +1,32 @@
+// 颜色变量通过 CSS 自定义属性实现主题切换：实际色值定义在 global.scss 的
+// :root（深色，默认）与 html[data-theme='light']（浅色）中，切换 html[data-theme] 即整站换肤
 // 主题色
-$primary-color: #07c160;
-$primary-hover: #06ad56;
-$primary-light: rgba(7, 193, 96, 0.12);
+$primary-color: var(--c-primary);
+$primary-hover: var(--c-primary-hover);
+$primary-light: var(--c-primary-light);
 
 // 文字颜色
-$text-primary: #e6e6e6;
-$text-secondary: #999;
-$text-tertiary: #666;
-$text-white: #fff;
+$text-primary: var(--c-text-primary);
+$text-secondary: var(--c-text-secondary);
+$text-tertiary: var(--c-text-tertiary);
+$text-white: var(--c-text-white);
 
 // 背景色
-$bg-base: #1e1e1e;
-$bg-sidebar: #1f1f1f;
-$bg-sidebar-hover: #2c2c2c;
-$bg-sidebar-active: #07c160;
-$bg-panel: #2b2b2b;
-$bg-panel-hover: #383838;
-$bg-content: #1e1e1e;
-$bg-input: #3a3a3a;
-$bg-bubble-self: #07c160;
-$bg-bubble-other: #333333;
-$bg-hover: #3d3d3d;
+$bg-base: var(--c-bg-base);
+$bg-sidebar: var(--c-bg-sidebar);
+$bg-sidebar-hover: var(--c-bg-sidebar-hover);
+$bg-sidebar-active: var(--c-primary);
+$bg-panel: var(--c-bg-panel);
+$bg-panel-hover: var(--c-bg-panel-hover);
+$bg-content: var(--c-bg-content);
+$bg-input: var(--c-bg-input);
+$bg-bubble-self: var(--c-primary);
+$bg-bubble-other: var(--c-bg-bubble-other);
+$bg-hover: var(--c-bg-hover);
 
 // 边框
-$border-color: rgba(255, 255, 255, 0.08);
-$border-light: rgba(255, 255, 255, 0.05);
+$border-color: var(--c-border);
+$border-light: var(--c-border-light);
 
 // 间距
 $spacing-xs: 4px;

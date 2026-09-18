@@ -5,6 +5,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
 
@@ -14,12 +15,12 @@ const presetStore = useModelPresetStore()
 
 const preset = computed(() => presetStore.findById(props.id))
 
-const PROTOCOL_LABELS: Record<string, string> = {
-  'openai-chat': '对话（OpenAI 兼容）',
-  'dashscope-image': '文生图（阿里 DashScope）',
-  'openai-image': '文生图（OpenAI Images 兼容）',
-  'siliconflow-image': '文生图（硅基流动）',
-}
+const PROTOCOL_LABELS = computed<Record<string, string>>(() => ({
+  'openai-chat': t('models.protocolChat'),
+  'dashscope-image': t('models.protocolDashscope'),
+  'openai-image': t('models.protocolOpenaiImage'),
+  'siliconflow-image': t('models.protocolSiliconflow'),
+}))
 
 const isImage = computed(() => !!preset.value && preset.value.protocol !== 'openai-chat')
 
@@ -27,10 +28,10 @@ const metaRows = computed(() => {
   const p = preset.value
   if (!p) return []
   return [
-    { label: '类型', value: PROTOCOL_LABELS[p.protocol] ?? p.protocol, warn: false },
-    { label: 'API 地址', value: p.baseUrl, warn: false },
-    { label: 'API Key', value: p.hasKey ? '已配置（加密存储，不回显）' : '未配置', warn: !p.hasKey },
-    { label: '备注', value: p.remark || '未设置', warn: false },
+    { label: t('models.typeLabel'), value: PROTOCOL_LABELS.value[p.protocol] ?? p.protocol, warn: false },
+    { label: t('models.apiLabel'), value: p.baseUrl, warn: false },
+    { label: t('models.keyLabel'), value: p.hasKey ? t('models.keyConfigured') : t('models.keyMissing'), warn: !p.hasKey },
+    { label: t('models.remarkLabel'), value: p.remark || t('contact.notSet'), warn: false },
   ]
 })
 
@@ -44,9 +45,9 @@ async function remove() {
   const p = preset.value
   if (!p) return
   const ok = await confirmAction({
-    title: '删除模型预设',
-    message: `确定删除模型预设「${p.name}」吗？`,
-    confirmText: '删除',
+    title: t('common.delete'),
+    message: t('models.deleteMsg', { name: p.name }),
+    confirmText: t('common.delete'),
     danger: true,
   })
   if (!ok) return
@@ -54,7 +55,7 @@ async function remove() {
     await presetStore.removePreset(p.id)
     router.push('/models')
   } catch (e) {
-    alertAction(e instanceof Error ? e.message : '删除失败，请稍后再试')
+    alertAction(e instanceof Error ? e.message : t('models.deleteFailed'))
   }
 }
 </script>
@@ -77,9 +78,9 @@ async function remove() {
           <div class="profile-title">
             <h2 class="name">
               {{ preset.name }}
-              <span class="protocol-chip" :class="{ image: isImage }">{{ isImage ? '文生图' : '对话' }}</span>
+              <span class="protocol-chip" :class="{ image: isImage }">{{ isImage ? t('models.imageProto') : t('models.chatProto') }}</span>
             </h2>
-            <p class="desc">{{ preset.remark || '暂无备注' }}</p>
+            <p class="desc">{{ preset.remark || t('models.noRemark') }}</p>
           </div>
         </div>
 
@@ -91,29 +92,29 @@ async function remove() {
 
           <div class="usage">
             <template v-if="usingAgents.length > 0">
-              <span class="usage-label">使用中（{{ usingAgents.length }}）：</span>
+              <span class="usage-label">{{ t('models.using', { n: usingAgents.length }) }}</span>
               <router-link
                 v-for="a in usingAgents"
                 :key="a.id"
                 :to="`/contact/${a.id}/edit`"
                 class="usage-agent"
-                :title="`编辑 ${a.name}`"
+                :title="`${t('common.edit')} ${a.name}`"
               >
                 <Avatar :name="a.name" :avatar="a.avatar" :size="22" />
                 <span class="usage-name">{{ a.name }}</span>
               </router-link>
             </template>
-            <span v-else class="usage-label">暂无智能体使用</span>
+            <span v-else class="usage-label">{{ t('models.noUsing') }}</span>
           </div>
         </div>
 
         <div class="actions">
-          <button class="action-btn" @click="router.push(`/models/${preset.id}/edit`)">编辑</button>
-          <button class="action-btn danger" @click="remove">删除</button>
+          <button class="action-btn" @click="router.push(`/models/${preset.id}/edit`)">{{ t('common.edit') }}</button>
+          <button class="action-btn danger" @click="remove">{{ t('common.delete') }}</button>
         </div>
       </div>
     </template>
-    <div v-else class="not-found">模型预设不存在或已被删除</div>
+    <div v-else class="not-found">{{ t('models.notFound') }}</div>
   </div>
 </template>
 
@@ -161,7 +162,7 @@ async function remove() {
 
     &.image {
       color: $primary-color;
-      background: rgba($primary-color, 0.12);
+      background: rgba(var(--c-primary-rgb), 0.12);
     }
   }
 
@@ -184,7 +185,7 @@ async function remove() {
 
       &.image {
         color: $primary-color;
-        background: rgba($primary-color, 0.12);
+        background: rgba(var(--c-primary-rgb), 0.12);
       }
     }
   }

@@ -6,6 +6,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { AVATAR_PRESETS } from '@/mock/seed'
 import Avatar from '@/components/common/Avatar.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{ id?: string }>()
 
@@ -28,7 +29,7 @@ const form = reactive<AgentDraft>({
   temperature: existing?.temperature ?? 0.7,
 })
 
-const nameError = computed(() => (form.name.trim() ? '' : '请填写名称'))
+const nameError = computed(() => (form.name.trim() ? '' : t('agentForm.nameRequired')))
 
 const presetOptions = computed(() => presetStore.presets)
 
@@ -36,14 +37,14 @@ const imagePresetOptions = computed(() =>
   presetStore.presets.filter((p) => p.protocol !== 'openai-chat'),
 )
 
-const PROTOCOL_LABELS: Record<string, string> = {
+const PROTOCOL_LABELS = computed<Record<string, string>>(() => ({
   'dashscope-image': 'DashScope',
   'openai-image': 'OpenAI Images',
-  'siliconflow-image': '硅基流动',
-}
+  'siliconflow-image': t('agentForm.siliconflow'),
+}))
 
 function protocolLabel(protocol: string) {
-  return PROTOCOL_LABELS[protocol] ?? protocol
+  return PROTOCOL_LABELS.value[protocol] ?? protocol
 }
 
 const selectedPreset = computed(() =>
@@ -81,17 +82,17 @@ function cancel() {
 <template>
   <div class="agent-form">
     <div class="form-card">
-      <h2 class="form-title">{{ isEdit ? '编辑智能体' : '新建智能体' }}</h2>
+      <h2 class="form-title">{{ isEdit ? t('agentForm.editTitle') : t('agentForm.addTitle') }}</h2>
 
       <div class="field">
-        <label class="label">预览</label>
+        <label class="label">{{ t('agentForm.preview') }}</label>
         <div class="preview">
-          <Avatar :name="form.name || '智能体'" :avatar="form.avatar" :size="56" />
+          <Avatar :name="form.name || t('agentForm.defaultName')" :avatar="form.avatar" :size="56" />
         </div>
       </div>
 
       <div class="field">
-        <label class="label">头像（可选预设表情）</label>
+        <label class="label">{{ t('agentForm.avatarLabel') }}</label>
         <div class="avatar-preset">
           <button
             v-for="emoji in AVATAR_PRESETS"
@@ -107,68 +108,68 @@ function cancel() {
       </div>
 
       <div class="field">
-        <label class="label required">名称</label>
-        <input v-model="form.name" class="input" placeholder="如：翻译助手" />
+        <label class="label required">{{ t('agentForm.nameLabel') }}</label>
+        <input v-model="form.name" class="input" :placeholder="t('agentForm.namePlaceholder')" />
         <p v-if="nameError" class="error">{{ nameError }}</p>
       </div>
 
       <div class="field">
-        <label class="label">描述</label>
-        <input v-model="form.description" class="input" placeholder="一句话描述该智能体的职责" />
+        <label class="label">{{ t('agentForm.descLabel') }}</label>
+        <input v-model="form.description" class="input" :placeholder="t('agentForm.descPlaceholder')" />
       </div>
 
       <div class="field">
-        <label class="label">分组</label>
-        <input v-model="form.groupName" class="input" list="group-options" maxlength="20" placeholder="可选，如：工作助手；留空表示不分组" />
+        <label class="label">{{ t('agentForm.groupLabel') }}</label>
+        <input v-model="form.groupName" class="input" list="group-options" maxlength="20" :placeholder="t('agentForm.groupPlaceholder')" />
         <datalist id="group-options">
           <option v-for="g in existingGroups" :key="g" :value="g" />
         </datalist>
       </div>
 
       <div class="field">
-        <label class="label required">模型预设</label>
+        <label class="label required">{{ t('contact.presetLabel') }}</label>
         <select v-model="form.presetId" class="input" :disabled="presetOptions.length === 0">
-          <option value="" disabled>{{ presetOptions.length === 0 ? '暂无可用预设' : '请选择模型预设' }}</option>
+          <option value="" disabled>{{ presetOptions.length === 0 ? t('agentForm.noPresets') : t('agentForm.pickPreset') }}</option>
           <option v-for="p in presetOptions" :key="p.id" :value="p.id">
             {{ p.name }}
           </option>
         </select>
         <p v-if="presetOptions.length === 0" class="preset-empty">
-          还没有模型预设，
-          <router-link to="/models/add" class="link">去「模型」页新增 →</router-link>
+          {{ t('agentForm.noPresetYet') }}
+          <router-link to="/models/add" class="link">{{ t('agentForm.goModels') }}</router-link>
         </p>
       </div>
 
       <template v-if="selectedPreset">
         <div class="field">
-          <label class="label">API Base URL（由预设提供）</label>
+          <label class="label">{{ t('agentForm.apiByPreset') }}</label>
           <input class="input" :value="selectedPreset.baseUrl" readonly disabled />
         </div>
 
         <div class="field">
-          <label class="label">API Key（由预设提供）</label>
-          <input class="input" :value="selectedPreset.hasKey ? '已配置' : '未配置'" readonly disabled />
+          <label class="label">{{ t('agentForm.keyByPreset') }}</label>
+          <input class="input" :value="selectedPreset.hasKey ? t('agentForm.configured') : t('agentForm.notConfigured')" readonly disabled />
         </div>
       </template>
 
       <div class="field">
-        <label class="label">图像预设（可选）</label>
+        <label class="label">{{ t('agentForm.imagePresetLabel') }}</label>
         <select v-model="form.imagePresetId" class="input">
-          <option value="">不启用文生图</option>
+          <option value="">{{ t('agentForm.noImagePreset') }}</option>
           <option v-for="p in imagePresetOptions" :key="p.id" :value="p.id">
             {{ p.name }}（{{ protocolLabel(p.protocol) }}）
           </option>
         </select>
-        <p class="preset-empty">绑定文生图预设后，该智能体获得 generate_image 工具，可在聊天中生成图片</p>
+        <p class="preset-empty">{{ t('agentForm.imagePresetHint') }}</p>
       </div>
 
       <div class="field">
-        <label class="label">角色设定（System Prompt）</label>
+        <label class="label">{{ t('contact.promptLabel') }}</label>
         <textarea
           v-model="form.systemPrompt"
           class="input textarea"
           rows="4"
-          placeholder="定义该智能体的角色与行为，如：你是资深代码审查员……"
+          :placeholder="t('agentForm.promptPlaceholder')"
         />
       </div>
 
@@ -176,26 +177,26 @@ function cancel() {
         <label class="check-row">
           <input v-model="form.isOrchestrator" type="checkbox" />
           <span>
-            设为编排者
-            <em>聊天时他会协调团队其他智能体分工协作，并给出最终总结</em>
+            {{ t('agentForm.setOrchestrator') }}
+            <em>{{ t('agentForm.orchestratorHint') }}</em>
           </span>
         </label>
       </div>
 
       <div class="field">
-        <label class="label">温度（temperature：{{ form.temperature }}）</label>
+        <label class="label">{{ t('agentForm.tempLabel', { v: form.temperature }) }}</label>
         <input v-model.number="form.temperature" type="range" min="0" max="2" step="0.1" class="range" />
         <div class="range-hints">
-          <span>0 精确</span>
-          <span>1 平衡</span>
-          <span>2 发散</span>
+          <span>{{ t('agentForm.tempPrecise') }}</span>
+          <span>{{ t('agentForm.tempBalanced') }}</span>
+          <span>{{ t('agentForm.tempDivergent') }}</span>
         </div>
       </div>
 
       <div class="actions">
-        <button class="btn" @click="cancel">取消</button>
+        <button class="btn" @click="cancel">{{ t('common.cancel') }}</button>
         <button class="btn primary" :disabled="!form.name.trim() || !form.presetId" @click="save">
-          {{ isEdit ? '保存' : '创建' }}
+          {{ isEdit ? t('common.save') : t('message.create') }}
         </button>
       </div>
     </div>
