@@ -26,6 +26,8 @@ export type AgentDraft = Omit<Agent, 'id'>
 export interface Conversation {
   id: string
   type: 'single' | 'group'
+  /** 会话类别：chat=普通聊天（消息页）| task=定时任务线程/群（任务页） */
+  category?: 'chat' | 'task'
   agentId?: string | null
   name: string
   memberIds: string[]
@@ -55,6 +57,59 @@ export interface Message {
   attachments?: Attachment[]
   timestamp: number
   type: 'text' | 'error'
+  /** 定时任务回合标注：本条消息由哪个定时任务触发产生 */
+  taskId?: string | null
+  taskName?: string | null
+}
+
+/** 定时任务：到点向绑定会话发合成用户消息触发智能体回复 */
+export interface ScheduledTask {
+  id: string
+  conversationId: string
+  agentId: string
+  name: string
+  content: string
+  kind: 'once' | 'daily' | 'weekly' | 'interval'
+  runAt: number | null
+  timeOfDay: string | null
+  daysOfWeek: string | null
+  intervalMinutes: number | null
+  nextRunAt: number | null
+  lastRunAt: number | null
+  status: 'active' | 'paused' | 'done'
+  /** normal=普通任务（智能体独立执行）| collab=协作任务（编排者拉成员建群） */
+  mode?: 'normal' | 'collab'
+  /** 错过的单次任务启动时是否补发 */
+  catchUp?: boolean
+  /** 后台触发回合是否自动放行写改文件（默认开） */
+  autoWrite?: boolean
+  /** 后台触发回合是否自动放行执行终端命令（默认关） */
+  autoShell?: boolean
+  createdAt: number
+}
+
+/** 任务会话 + 其下全部任务（任务页左列表项） */
+export interface TaskGroup {
+  conversation: Conversation
+  tasks: ScheduledTask[]
+}
+
+/** 定时任务创建/更新入参 */
+export interface TaskDraft {
+  agentId?: string
+  memberIds?: string[]
+  name: string
+  content: string
+  kind: 'once' | 'daily' | 'weekly' | 'interval'
+  runAt?: number | null
+  timeOfDay?: string | null
+  daysOfWeek?: string | null
+  intervalMinutes?: number | null
+  status?: 'active' | 'paused'
+  mode?: 'normal' | 'collab'
+  catchUp?: boolean
+  autoWrite?: boolean
+  autoShell?: boolean
 }
 
 /** 会话已授权的文件/目录 */

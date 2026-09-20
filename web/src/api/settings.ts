@@ -21,3 +21,16 @@ export function getCoordinationLimits(): Promise<CoordinationLimits> {
 export function updateCoordinationLimits(overallMinutes: number, memberMinutes: number): Promise<CoordinationLimits> {
   return request('/settings/coordination', { method: 'PUT', body: { overallMinutes, memberMinutes } })
 }
+
+export interface ContextCompression {
+  enabled: boolean
+  budgetChars: number
+}
+
+export function getContextCompression(): Promise<ContextCompression> {
+  return request('/settings/context-compression')
+}
+
+export function updateContextCompression(enabled: boolean, budgetChars: number): Promise<ContextCompression> {
+  return request('/settings/context-compression', { method: 'PUT', body: { enabled, budgetChars } })
+}

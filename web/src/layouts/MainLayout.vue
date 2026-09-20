@@ -58,6 +58,12 @@ const isWindows = navigator.userAgent.includes('Windows')
             {{ conversationStore.totalUnread > 99 ? '99+' : conversationStore.totalUnread }}
           </span>
         </router-link>
+        <router-link to="/tasks" class="nav-item" active-class="active" :title="t('nav.tasks')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3.5 2" />
+          </svg>
+        </router-link>
         <router-link to="/contact" class="nav-item" active-class="active" :title="t('nav.contacts')">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path

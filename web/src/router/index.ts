@@ -29,6 +29,23 @@ const router = createRouter({
           ],
         },
         {
+          path: 'tasks',
+          component: () => import('@/views/tasks/TasksView.vue'),
+          children: [
+            {
+              path: '',
+              name: 'TasksEmpty',
+              component: () => import('@/views/tasks/TasksPlaceholder.vue'),
+            },
+            {
+              path: ':id',
+              name: 'TaskChat',
+              component: () => import('@/views/tasks/TaskChatView.vue'),
+              props: true,
+            },
+          ],
+        },
+        {
           path: 'history',
           component: () => import('@/views/history/HistoryView.vue'),
           children: [

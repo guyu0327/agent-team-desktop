@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { Conversation } from '@/types'
 import { useHistoryStore } from '@/stores/history'
 import { useAgentStore } from '@/stores/agent'
+import { restoreArchivedTask } from '@/api/tasks'
 import { confirmAction } from '@/composables/confirm'
 import { showToast } from '@/composables/toast'
 import SearchBar from '@/components/common/SearchBar.vue'
@@ -31,6 +32,11 @@ watch(agentFilter, (id) => void historyStore.loadArchived(id || undefined))
 
 function displayOf(c: Conversation): { name: string; avatar: string } {
   if (c.type === 'group') return { name: c.name, avatar: '👥' }
+  // 任务归档以任务名为主标题，头像沿用所属智能体
+  if (c.category === 'task') {
+    const agent = c.agentId ? agentStore.getById(c.agentId) : undefined
+    return { name: c.name || t('history.taskTag'), avatar: agent?.avatar ?? '' }
+  }
   const agent = c.agentId ? agentStore.getById(c.agentId) : undefined
   return { name: agent?.name ?? t('common.deletedAgent'), avatar: agent?.avatar ?? '' }
 }
@@ -78,15 +84,30 @@ const ctx = ref<{ x: number; y: number; conv: Conversation } | null>(null)
 
 const ctxItems = computed(() => {
   if (!ctx.value) return []
-  return [
-    { key: 'continue', label: t('history.continueChat') },
-    { key: 'delete', label: t('common.delete'), danger: true },
-  ]
+  // 任务归档：恢复任务 + 删除；普通归档：继续聊天 + 删除
+  const items = []
+  if (ctx.value.conv.category === 'task') {
+    items.push({ key: 'restore-task', label: t('history.restoreTask') })
+  } else {
+    items.push({ key: 'continue', label: t('history.continueChat') })
+  }
+  items.push({ key: 'delete', label: t('common.delete'), danger: true })
+  return items
 })
 
 async function onCtxSelect(key: string) {
   const c = ctx.value?.conv
   if (!c) return
+  if (key === 'restore-task') {
+    try {
+      const task = await restoreArchivedTask(c.id)
+      showToast(t('history.taskRestored'))
+      router.push(`/tasks/${task.conversationId}`)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : t('history.restoreFailed'))
+    }
+    return
+  }
   if (key === 'continue') {
     try {
       const dto = await historyStore.restore(c.id)
@@ -140,6 +161,7 @@ async function onCtxSelect(key: string) {
               :conversation="c"
               :name="displayOf(c).name"
               :avatar="displayOf(c).avatar"
+              :badge="c.category === 'task' ? t('history.taskTag') : undefined"
               :active="c.id === activeId"
             />
           </router-link>

@@ -11,6 +11,7 @@ import {
   deleteConversation,
   listConversations,
   listMessages,
+  listTaskConversations,
   markRead,
   pinConversation,
   removeMember,
@@ -18,15 +19,21 @@ import {
   resetMessages,
   sendMessageStream,
   setConversationMode,
+  subscribeConversationEvents,
 } from '@/api/conversation'
+import type { SendStreamHandlers } from '@/api/conversation'
 import { useAgentStore } from '@/stores/agent'
 
 export const useConversationStore = defineStore('conversation', () => {
   const agentStore = useAgentStore()
 
   const conversations = ref<Conversation[]>([])
+  /** 定时任务会话（category=task 的线程/群），只在任务页使用 */
+  const taskConversations = ref<Conversation[]>([])
   const messagesMap = ref<Record<string, Message[]>>({})
   const activeId = ref<string | null>(null)
+  /** 任务会话内按任务筛选消息（taskId，null=全部） */
+  const taskFilter = ref<string | null>(null)
   const typingByConv = ref<Record<string, boolean>>({})
   /** 会话 -> 正在协调的编排者 agentId */
   const orchestratingByConv = ref<Record<string, string>>({})
@@ -36,6 +43,8 @@ export const useConversationStore = defineStore('conversation', () => {
   const imageGenByConv = ref<Record<string, string>>({})
   /** 会话 -> 待用户决定的受控操作审批请求（智能体调用 write/edit/execute 时产生） */
   const opRequestsByConv = ref<Record<string, OpRequest[]>>({})
+  /** 会话 -> 即将发言的智能体（reply_pending 到 reply_start 的思考窗口，独立思考条据此显示是谁） */
+  const pendingReplyByConv = ref<Record<string, string>>({})
 
   /** 同一会话的发送串行化，避免两次发送的回复流交错 */
   const sendQueue = new Map<string, Promise<void>>()
@@ -103,7 +112,7 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   function findConv(id: string): Conversation | undefined {
-    return conversations.value.find((c) => c.id === id)
+    return conversations.value.find((c) => c.id === id) ?? taskConversations.value.find((c) => c.id === id)
   }
 
   async function loadConversations() {
@@ -111,15 +120,36 @@ export const useConversationStore = defineStore('conversation', () => {
     pruneMessages()
   }
 
+  /** 任务页左侧列表：定时任务会话（服务端按最近消息倒序返回） */
+  async function loadTaskConversations() {
+    taskConversations.value = await listTaskConversations()
+  }
+
   async function setActive(id: string) {
     activeId.value = id
     await openMessages(id)
   }
 
+  function setTaskFilter(taskId: string | null) {
+    taskFilter.value = taskId
+    if (activeId.value) openMessages(activeId.value).catch(() => {})
+  }
+
   async function openMessages(id: string) {
-    const page = await listMessages(id)
+    // 记录请求时的筛选条件：响应回来若筛选已变（快速切换任务/会话），丢弃本次结果，
+    // 避免旧条件的（可能为空的）结果覆盖新内容——表现为内容闪一下后消失
+    const filter = taskFilter.value ?? undefined
+    const page = await listMessages(id, undefined, 50, filter)
     if (activeId.value !== id) return
-    messagesMap.value[id] = page.list
+    if ((taskFilter.value ?? undefined) !== filter) return
+    const existing = messagesMap.value[id] ?? []
+    // 合并而非整体替换：流式中的消息要等段落收尾才落库，服务端副本内容为空，
+    // 直接替换会丢掉已累积的增量（切走再切回时输出消失，直到 reply_end 全文覆盖才恢复）。
+    // 同 ID 保留内容更完整的一份（即本地流式对象，后续 delta 继续拼在它上面）
+    messagesMap.value[id] = page.list.map((m) => {
+      const local = existing.find((e) => e.id === m.id)
+      return local && local.content.length > m.content.length ? local : m
+    })
     const conv = findConv(id)
     if (conv && conv.unreadCount > 0) {
       conv.unreadCount = 0
@@ -128,7 +158,11 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   function pruneMessages() {
-    const ids = new Set(conversations.value.map((c) => c.id))
+    // 任务线程的消息缓存也要保留：否则任何一次 loadConversations
+    // （如切换任务会话时上一会话的 finish）都会把任务页正在看的内容清空
+    const ids = new Set(
+      [...conversations.value, ...taskConversations.value].map((c) => c.id),
+    )
     for (const key of Object.keys(messagesMap.value)) {
       if (!ids.has(key)) delete messagesMap.value[key]
     }
@@ -167,79 +201,96 @@ export const useConversationStore = defineStore('conversation', () => {
     return task
   }
 
-  async function doSend(conversationId: string, content: string, attachments: Attachment[]) {
-    let needsResync = false
+  /** 一轮流式回复的公共事件处理：本地发送（doSend）与任务扇出订阅（watchConversation）共用 */
+  function streamHandlers(conversationId: string) {
     // 编排协作时消息可能进入新建的项目群，结束时要清理这些会话的 typing/coordination 状态
     const typingCids = new Set<string>([conversationId])
     const coordCids = new Set<string>()
     const imgCids = new Set<string>()
+    const state = { needsResync: false }
     const cidOf = (e: { conversationId?: string }) => e.conversationId ?? conversationId
-    try {
-      await sendMessageStream(conversationId, content, {
-        onUserMessage: (msg) => pushMessage(msg),
-        onReplyStart: (e) => {
-          const cid = cidOf(e)
-          typingByConv.value[cid] = true
-          typingCids.add(cid)
-          pushMessage({
-            id: e.messageId,
-            conversationId: cid,
-            senderType: 'agent',
-            senderId: e.agentId,
-            content: '',
-            timestamp: Date.now(),
-            type: 'text',
-          })
-        },
-        onDelta: (e) => {
+    const handlers: SendStreamHandlers = {
+      onUserMessage: (msg) => pushMessage(msg),
+      onReplyStart: (e) => {
+        const cid = cidOf(e)
+        typingByConv.value[cid] = true
+        typingCids.add(cid)
+        // 占位气泡出现，思考窗口结束，气泡内打字点接管
+        delete pendingReplyByConv.value[cid]
+        // 观察者重连时后端会重放进行中的段（reply_start），本地已有同 ID 气泡则不重复插
+        const list = messagesMap.value[cid] ?? []
+        if (list.some((m) => m.id === e.messageId)) return
+        pushMessage({
+          id: e.messageId,
+          conversationId: cid,
+          senderType: 'agent',
+          senderId: e.agentId,
+          content: '',
+          timestamp: Date.now(),
+          type: 'text',
+        })
+      },
+      onDelta: (e) => {
+        const msg = (messagesMap.value[cidOf(e)] ?? []).find((m) => m.id === e.messageId)
+        if (!msg) return
+        // replay 标记的是重连时补发的该段全量快照（本地在断开期间的增量已不可信），替换而非追加
+        if (e.replay) msg.content = e.delta
+        else msg.content += e.delta
+      },
+      onReplyEnd: (e) => {
+        const msg = (messagesMap.value[cidOf(e)] ?? []).find((m) => m.id === e.messageId)
+        if (msg) msg.content = e.content
+      },
+      onReplyError: (e) => {
+        if (e.messageId) {
           const msg = (messagesMap.value[cidOf(e)] ?? []).find((m) => m.id === e.messageId)
-          if (msg) msg.content += e.delta
-        },
-        onReplyEnd: (e) => {
-          const msg = (messagesMap.value[cidOf(e)] ?? []).find((m) => m.id === e.messageId)
-          if (msg) msg.content = e.content
-        },
-        onReplyError: (e) => {
-          if (e.messageId) {
-            const msg = (messagesMap.value[cidOf(e)] ?? []).find((m) => m.id === e.messageId)
-            if (msg) {
-              msg.type = 'error'
-              msg.content = e.error
-            }
-          } else {
-            // 该错误消息已由后端持久化但前端没有其 ID，需要重拉消息对齐
-            needsResync = true
+          if (msg) {
+            msg.type = 'error'
+            msg.content = e.error
           }
-        },
-        onConversationCreated: (conv) => replaceConv(conv),
-        onCoordinationStart: (e) => {
-          orchestratingByConv.value[e.conversationId] = e.agentId
-          coordCids.add(e.conversationId)
-        },
-        onCoordinationEnd: (e) => {
-          delete orchestratingByConv.value[e.conversationId]
-          // 协作结束时后端已终止/唤醒全部审批等待，残留卡片均已失效
-          clearOpRequests(e.conversationId)
-        },
-        onDiscussionStart: (e) => {
-          discussingByConv.value[e.conversationId] = true
-          coordCids.add(e.conversationId)
-        },
-        onDiscussionEnd: (e) => {
-          delete discussingByConv.value[e.conversationId]
-          clearOpRequests(e.conversationId)
-        },
-        onOpRequest: (e) => onOpRequest(e),
-        onImageStart: (e) => {
-          imageGenByConv.value[e.conversationId] = e.agentName
-          imgCids.add(e.conversationId)
-        },
-        onImageEnd: (e) => {
-          delete imageGenByConv.value[e.conversationId]
-        },
-      }, attachments)
-    } finally {
-      for (const cid of typingCids) typingByConv.value[cid] = false
+        } else {
+          // 该错误消息已由后端持久化但前端没有其 ID，需要重拉消息对齐
+          state.needsResync = true
+        }
+      },
+      onConversationCreated: (conv) => {
+        replaceConv(conv)
+        loadTaskConversations().catch(() => {})
+      },
+      onCoordinationStart: (e) => {
+        orchestratingByConv.value[e.conversationId] = e.agentId
+        coordCids.add(e.conversationId)
+      },
+      onCoordinationEnd: (e) => {
+        delete orchestratingByConv.value[e.conversationId]
+        // 协作结束时后端已终止/唤醒全部审批等待，残留卡片均已失效
+        clearOpRequests(e.conversationId)
+      },
+      onDiscussionStart: (e) => {
+        discussingByConv.value[e.conversationId] = true
+        coordCids.add(e.conversationId)
+      },
+      onDiscussionEnd: (e) => {
+        delete discussingByConv.value[e.conversationId]
+        clearOpRequests(e.conversationId)
+      },
+      onOpRequest: (e) => onOpRequest(e),
+      onReplyPending: (e) => {
+        pendingReplyByConv.value[e.conversationId] = e.agentId
+      },
+      onImageStart: (e) => {
+        imageGenByConv.value[e.conversationId] = e.agentName
+        imgCids.add(e.conversationId)
+      },
+      onImageEnd: (e) => {
+        delete imageGenByConv.value[e.conversationId]
+      },
+    }
+    async function finish() {
+      for (const cid of typingCids) {
+        typingByConv.value[cid] = false
+        delete pendingReplyByConv.value[cid]
+      }
       for (const cid of coordCids) delete orchestratingByConv.value[cid]
       for (const cid of imgCids) delete imageGenByConv.value[cid]
       try {
@@ -254,10 +305,42 @@ export const useConversationStore = defineStore('conversation', () => {
         /* 已读标记失败可忽略 */
       }
       loadConversations().catch(() => {})
-      if (needsResync && activeId.value === conversationId) {
+      loadTaskConversations().catch(() => {})
+      if (state.needsResync && activeId.value === conversationId) {
         openMessages(conversationId).catch(() => {})
       }
     }
+    return { handlers, finish }
+  }
+
+  async function doSend(conversationId: string, content: string, attachments: Attachment[]) {
+    const { handlers, finish } = streamHandlers(conversationId)
+    try {
+      // 思考中状态从发出消息即开始（此前要到 reply_start 才置位，而 reply_start 与首个
+      // 文本增量几乎同时到达，动画基本不可见），直到本轮流式回复结束由 finally 清理
+      typingByConv.value[conversationId] = true
+      await sendMessageStream(conversationId, content, handlers, attachments)
+    } finally {
+      await finish()
+    }
+  }
+
+  /**
+   * 常驻订阅会话的扇出事件：定时任务触发的回合没有任何本地发送方，
+   * 正在查看该会话的前端靠它实时看到流式输出。返回取消订阅函数。
+   */
+  function watchConversation(conversationId: string): () => void {
+    // 重挂载（切走再切回）时先清掉上一订阅可能残留的会话状态：后端会在注册观察者时
+    // 重放仍在进行的协作与流中回复；回合已结束则保持干净，避免残留的协作条/思考指示
+    delete orchestratingByConv.value[conversationId]
+    delete discussingByConv.value[conversationId]
+    typingByConv.value[conversationId] = false
+    delete pendingReplyByConv.value[conversationId]
+    const { handlers, finish } = streamHandlers(conversationId)
+    // 回合结束（done 事件）才做收尾清理；取消订阅≠回合结束，切走时协作可能仍在进行
+    handlers.onDone = () => finish().catch(() => {})
+    const stop = subscribeConversationEvents(conversationId, handlers)
+    return () => stop()
   }
 
   async function togglePinned(conversationId: string) {
@@ -366,6 +449,7 @@ export const useConversationStore = defineStore('conversation', () => {
     totalUnread,
     currentMessages,
     activeId,
+    findConv,
     typingByConv,
     isTyping,
     imageGenByConv,
@@ -375,11 +459,17 @@ export const useConversationStore = defineStore('conversation', () => {
     discussingByConv,
     isDiscussing,
     opRequestsByConv,
+    pendingReplyByConv,
     pendingOpRequests,
     decideOpRequest,
     clearOpRequests,
     loadConversations,
+    taskConversations,
+    loadTaskConversations,
     setActive,
+    taskFilter,
+    setTaskFilter,
+    watchConversation,
     sendMessage,
     pushMessage,
     openConversationWith,

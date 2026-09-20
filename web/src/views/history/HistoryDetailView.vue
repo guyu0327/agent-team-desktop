@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Conversation, Message } from '@/types'
 import { listMessages } from '@/api/conversation'
+import { restoreArchivedTask } from '@/api/tasks'
 import { useHistoryStore } from '@/stores/history'
 import { useAgentStore } from '@/stores/agent'
 import { useUserStore } from '@/stores/user'
@@ -31,15 +32,27 @@ const conv = computed<Conversation | undefined>(() => historyStore.archived.find
 
 const title = computed(() => {
   if (!conv.value) return t('history.title')
+  // 任务归档的标题就是任务名
+  if (conv.value.category === 'task') return conv.value.name || t('history.taskTag')
   if (conv.value.type === 'group') return conv.value.name || t('history.group')
   const agent = conv.value.agentId ? agentStore.getById(conv.value.agentId) : undefined
   return agent?.name ?? t('common.deletedAgent')
 })
 
+/** 归档标签：任务归档与普通归档区分 */
+const tagText = computed(() =>
+  conv.value?.category === 'task' ? t('history.taskTag') : t('history.tag'),
+)
+
+/** 定时任务触发的合成消息（user 轮次带 taskId）不在前端展示 */
+function isTaskTrigger(m: Message): boolean {
+  return m.senderType === 'user' && !!m.taskId
+}
+
 async function load() {
   try {
     const page = await listMessages(props.id, undefined, PAGE_SIZE)
-    messages.value = page.list
+    messages.value = page.list.filter((m) => !isTaskTrigger(m))
     hasMore.value = page.hasMore
   } catch {
     messages.value = []
@@ -55,7 +68,7 @@ async function loadMore() {
     const before = messages.value[0]?.timestamp
     if (before === undefined) return
     const page = await listMessages(props.id, before, PAGE_SIZE)
-    messages.value = [...page.list, ...messages.value]
+    messages.value = [...page.list.filter((m) => !isTaskTrigger(m)), ...messages.value]
     hasMore.value = page.hasMore
   } finally {
     loadingMore.value = false
@@ -99,6 +112,21 @@ async function continueChat() {
   }
 }
 
+/** 恢复任务：按归档快照重建定时任务，成功后跳到任务页 */
+async function restoreTask() {
+  if (restoring.value) return
+  restoring.value = true
+  try {
+    const task = await restoreArchivedTask(props.id)
+    showToast(t('history.taskRestored'))
+    router.push(`/tasks/${task.conversationId}`)
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : t('history.restoreFailed'))
+  } finally {
+    restoring.value = false
+  }
+}
+
 async function removeHistory() {
   const ok = await confirmAction({
     title: t('history.deleteTitle'),
@@ -120,10 +148,14 @@ async function removeHistory() {
   <div class="history-detail">
     <header class="detail-header drag-region">
       <span class="title">{{ title }}</span>
-      <span class="archive-tag">{{ t('history.tag') }}</span>
+      <span class="archive-tag">{{ tagText }}</span>
       <div class="spacer" />
-      <button class="primary-btn" :disabled="restoring" @click="continueChat">
+      <!-- 普通归档可恢复会话；任务归档按快照恢复定时任务 -->
+      <button v-if="conv?.category !== 'task'" class="primary-btn" :disabled="restoring" @click="continueChat">
         {{ restoring ? t('history.restoring') : t('history.continueChat') }}
+      </button>
+      <button v-else class="primary-btn" :disabled="restoring" @click="restoreTask">
+        {{ t('history.restoreTask') }}
       </button>
       <button class="danger-btn" @click="removeHistory">{{ t('common.delete') }}</button>
     </header>

@@ -48,9 +48,7 @@ const mentionIndex = ref(0)
 // Esc 关闭后记录位置，光标未动前不再弹出
 let mentionDismissed: { start: number; pos: number } | null = null
 
-const conversation = computed(() =>
-  conversationStore.conversations.find((c) => c.id === props.id),
-)
+const conversation = computed(() => conversationStore.conversations.find((c) => c.id === props.id))
 const messages = computed(() => conversationStore.currentMessages)
 
 watch(conversation, (conv) => {
@@ -79,6 +77,10 @@ const coordinator = computed(() => {
 })
 
 const discussing = computed(() => conversationStore.isDiscussing(props.id))
+
+/** 普通回复进行中：发送按钮切换为「停止」（协作/讨论已有横幅终止入口，不重复提供） */
+const canStopReply = computed(() =>
+  conversationStore.isTyping(props.id) && !coordinator.value && !discussing.value)
 
 const imageAgentName = computed(() => conversationStore.isGeneratingImage(props.id))
 
@@ -342,6 +344,24 @@ function senderBadge(msg: Message): string | undefined {
   return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
 }
 
+/** 思考中指示条：发出消息即显示；reply_pending 预告的思考窗口（含接龙/依次回复的
+ *  间隔期）持续显示；某位成员的占位气泡出现（reply_start）后由气泡内打字点接管 */
+const showThinking = computed(() => {
+  if (!conversationStore.isTyping(props.id)) return false
+  if (conversationStore.pendingReplyByConv[props.id]) return true
+  const last = messages.value[messages.value.length - 1]
+  return !(last && last.senderType === 'agent')
+})
+
+/** 思考中的智能体：优先「即将发言」的成员（接龙/依次回复的间隔期），单聊回落会话对象，
+ *  编排者群聊回落协调者（coordination_start 早于模型思考，首段思考也有头像） */
+const thinkingAgent = computed(() => {
+  const id = conversationStore.pendingReplyByConv[props.id]
+    ?? conversation.value?.agentId
+    ?? coordinator.value?.id
+  return id ? agentStore.getById(id) : undefined
+})
+
 /** 贴底自动滚动：用户上翻即暂停，滚回底部（或发消息/切会话）后恢复 */
 const stickToBottom = ref(true)
 let lastScrollTop = 0
@@ -550,6 +570,16 @@ async function handleStopCoordination() {
   }
 }
 
+/** 终止普通回复：直接掐断流，已产生的输出保留，流以 done 正常收尾后按钮自动还原 */
+async function handleStopReply() {
+  try {
+    const res = await stopOrchestration(props.id)
+    if (res.stopped) conversationStore.clearOpRequests(props.id)
+  } catch {
+    /* 终止失败时流会自行结束或超时，无需打断用户 */
+  }
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (mentionCandidates.value.length > 0) {
     if (e.key === 'ArrowDown') {
@@ -645,6 +675,15 @@ function onKeydown(e: KeyboardEvent) {
             @avatar-menu="openAvatarCtx($event, msg)"
           />
         </template>
+        <div v-if="showThinking" class="thinking-row">
+          <Avatar v-if="thinkingAgent" :name="thinkingAgent.name" :avatar="thinkingAgent.avatar" :size="36" />
+          <div class="thinking-col">
+            <span v-if="thinkingAgent" class="thinking-name">{{ thinkingAgent.name }}</span>
+            <div class="thinking-bubble">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </div>
+          </div>
+        </div>
         <ContextMenu
           v-if="msgCtx"
           :x="msgCtx.x"
@@ -799,7 +838,10 @@ function onKeydown(e: KeyboardEvent) {
         @paste="onPaste"
       />
       <div class="send-row">
-        <button class="send-btn" :disabled="!draft.trim() && pendingAttachments.length === 0" @click="handleSend">
+        <button v-if="canStopReply" class="send-btn stop" @click="handleStopReply">
+          {{ t('chat.stopGenerating') }}
+        </button>
+        <button v-else class="send-btn" :disabled="!draft.trim() && pendingAttachments.length === 0" @click="handleSend">
           {{ t('chat.send') }}
         </button>
       </div>
@@ -921,6 +963,71 @@ function onKeydown(e: KeyboardEvent) {
     margin: auto;
     color: $text-tertiary;
     font-size: $font-size-sm;
+  }
+}
+
+/* 思考中指示条：样式对齐 MessageBubble 的打字点动画（scoped 内 keyframes 独立命名） */
+.thinking-row {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-md;
+}
+
+/* 名字在气泡上方，对齐消息气泡的排版（bubble-col / sender-name） */
+.thinking-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.thinking-name {
+  font-size: $font-size-xs;
+  color: $text-tertiary;
+  line-height: 1;
+}
+
+.thinking-bubble {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 13px $spacing-md;
+  background: $bg-bubble-other;
+  border-radius: 2px $radius-md $radius-md $radius-md;
+
+  .dots {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+
+    span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: $text-tertiary;
+      animation: thinking-blink 1.2s infinite ease-in-out;
+
+      &:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+
+      &:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+    }
+  }
+}
+
+@keyframes thinking-blink {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
   }
 }
 
@@ -1418,6 +1525,18 @@ function onKeydown(e: KeyboardEvent) {
     background: $bg-input;
     color: $text-tertiary;
     cursor: not-allowed;
+  }
+
+  &.stop {
+    background: transparent;
+    color: $text-secondary;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+
+    &:hover {
+      background: rgba(250, 81, 81, 0.14);
+      color: #ff9c9c;
+      border-color: rgba(250, 81, 81, 0.45);
+    }
   }
 }
 </style>

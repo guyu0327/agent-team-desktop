@@ -51,6 +51,12 @@ export function formatConversationTime(ts: number | null | undefined): string {
   })
 }
 
+/** 完整日期时间 YYYY-MM-DD HH:mm（任务下次/上次执行等精确时刻） */
+export function formatDateTime(ts: number): string {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${formatTime(ts)}`
+}
+
 export function formatDividerTime(ts: number): string {
   const today = startOfDay(Date.now())
   const day = startOfDay(ts)

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
 import { getCoordinationLimits, updateCoordinationLimits } from '@/api/settings'
+import { getContextCompression, updateContextCompression } from '@/api/settings'
 import { getAsrStreamSettings, updateAsrStreamSettings } from '@/api/asr'
 import type { AsrStreamStatus } from '@/types'
 import { desktop, openLocalPath } from '@/api/desktop'
@@ -100,6 +101,45 @@ async function saveLimits() {
 const launchAtLogin = ref(false)
 const launchBusy = ref(false)
 
+const compressionEnabled = ref(true)
+const compressionBudget = ref(60000)
+const savedCompressionEnabled = ref(true)
+const savedCompressionBudget = ref(60000)
+const compressionSaving = ref(false)
+const compressionFeedback = ref<{ ok: boolean; text: string } | null>(null)
+
+const compressionDirty = computed(
+  () => compressionEnabled.value !== savedCompressionEnabled.value || compressionBudget.value !== savedCompressionBudget.value,
+)
+
+function resetCompression() {
+  compressionEnabled.value = savedCompressionEnabled.value
+  compressionBudget.value = savedCompressionBudget.value
+}
+
+async function saveCompression() {
+  const budget = Math.floor(Number(compressionBudget.value))
+  if (!Number.isFinite(budget) || budget < 5000 || budget > 500000) {
+    compressionFeedback.value = { ok: false, text: t('settings.compressionInvalid') }
+    return
+  }
+  if (compressionSaving.value) return
+  compressionSaving.value = true
+  compressionFeedback.value = null
+  try {
+    const s = await updateContextCompression(compressionEnabled.value, budget)
+    compressionEnabled.value = s.enabled
+    compressionBudget.value = s.budgetChars
+    savedCompressionEnabled.value = s.enabled
+    savedCompressionBudget.value = s.budgetChars
+    compressionFeedback.value = { ok: true, text: t('settings.compressionSaved') }
+  } catch (e) {
+    compressionFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.saveFailed') }
+  } finally {
+    compressionSaving.value = false
+  }
+}
+
 const theme = ref<ThemeMode>(currentTheme())
 const lang = ref<AppLang>(currentLang())
 
@@ -177,6 +217,15 @@ onMounted(async () => {
     savedMember.value = l.memberMinutes
   } catch (e) {
     limitsFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.loadFailed') }
+  }
+  try {
+    const c = await getContextCompression()
+    compressionEnabled.value = c.enabled
+    compressionBudget.value = c.budgetChars
+    savedCompressionEnabled.value = c.enabled
+    savedCompressionBudget.value = c.budgetChars
+  } catch (e) {
+    compressionFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.loadFailed') }
   }
   if (desktop.getLoginItem) {
     try {
@@ -434,6 +483,39 @@ async function toggleLaunchAtLogin() {
         <div v-if="limitsDirty" class="actions">
           <button class="reset-btn" :disabled="limitsSaving" @click="resetLimits">{{ t('settings.reset') }}</button>
           <button class="save-btn" :disabled="limitsSaving" @click="saveLimits">{{ limitsSaving ? t('settings.saving') : t('common.save') }}</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <h3 class="section-title">{{ t('settings.compression') }}</h3>
+        <p class="hint">{{ t('settings.compressionHint') }}</p>
+
+        <button class="setting-row" @click="compressionEnabled = !compressionEnabled">
+          <span class="row-info">
+            <span class="row-name">{{ t('settings.compressionEnabled') }}</span>
+            <span class="row-desc">{{ t('settings.compressionEnabledDesc') }}</span>
+          </span>
+          <span class="switch" :class="{ on: compressionEnabled }"><span class="knob"></span></span>
+        </button>
+
+        <div class="field">
+          <label class="label">{{ t('settings.compressionBudget') }}</label>
+          <input
+            v-model.number="compressionBudget"
+            class="input"
+            type="number"
+            min="5000"
+            max="500000"
+            :disabled="!compressionEnabled"
+            :placeholder="t('settings.compressionBudgetPlaceholder')"
+          />
+        </div>
+
+        <p v-if="compressionFeedback" class="feedback" :class="compressionFeedback.ok ? 'ok' : 'err'">{{ compressionFeedback.text }}</p>
+
+        <div v-if="compressionDirty" class="actions">
+          <button class="reset-btn" :disabled="compressionSaving" @click="resetCompression">{{ t('settings.reset') }}</button>
+          <button class="save-btn" :disabled="compressionSaving" @click="saveCompression">{{ compressionSaving ? t('settings.saving') : t('common.save') }}</button>
         </div>
       </section>
 

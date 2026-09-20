@@ -1,6 +1,6 @@
 import type { Attachment, Conversation, Message, OpRequest } from '@/types'
 import { t } from '@/i18n'
-import { apiHeaders, apiUrl } from './base'
+import { API_TOKEN, apiHeaders, apiUrl } from './base'
 import { request } from './http'
 
 export interface MessagePage {
@@ -10,6 +10,11 @@ export interface MessagePage {
 
 export function listConversations(): Promise<Conversation[]> {
   return request('/conversations')
+}
+
+/** 定时任务会话（category=task），任务页左侧列表用 */
+export function listTaskConversations(): Promise<Conversation[]> {
+  return request('/tasks/conversations')
 }
 
 /** 历史会话（已归档）列表，按归档时间倒序；agentId 非空时只回与其绑定的会话 */
@@ -85,16 +90,21 @@ export function decideOperation(
   return request(`/conversations/${id}/op-grant`, { method: 'POST', body: { requestId, decision } })
 }
 
-export function listMessages(id: string, before?: number, limit = 50): Promise<MessagePage> {
-  const query = before !== undefined ? `?before=${before}&limit=${limit}` : `?limit=${limit}`
-  return request(`/conversations/${id}/messages${query}`)
+export function listMessages(id: string, before?: number, limit = 50, taskId?: string): Promise<MessagePage> {
+  const params = new URLSearchParams()
+  if (before !== undefined) params.set('before', String(before))
+  params.set('limit', String(limit))
+  if (taskId) params.set('taskId', taskId)
+  return request(`/conversations/${id}/messages?${params.toString()}`)
 }
 
 export interface SendStreamHandlers {
   onUserMessage?(msg: Message): void
   /** 消息所属会话由 e.conversationId 指定（编排协作时成员消息可能进入其他会话） */
   onReplyStart?(e: { messageId: string; agentId: string; conversationId?: string }): void
-  onDelta?(e: { messageId: string; delta: string; conversationId?: string }): void
+  /** 一位成员即将开始回复（模型思考窗口，含接龙/依次回复的间隔期，比 reply_start 早） */
+  onReplyPending?(e: { agentId: string; conversationId: string }): void
+  onDelta?(e: { messageId: string; delta: string; conversationId?: string; replay?: boolean }): void
   onReplyEnd?(e: { messageId: string; agentId: string; content: string; conversationId?: string }): void
   onReplyError?(e: { messageId?: string; agentId?: string; error: string; conversationId?: string }): void
   /** 编排协作中后端新建了项目群 */
@@ -186,6 +196,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
     case 'reply_start':
       handlers.onReplyStart?.(payload)
       break
+    case 'reply_pending':
+      handlers.onReplyPending?.(payload)
+      break
     case 'delta':
       handlers.onDelta?.(payload)
       break
@@ -223,4 +236,25 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
       handlers.onDone?.()
       break
   }
+}
+
+const STREAM_EVENTS = [
+  'user_message', 'reply_start', 'reply_pending', 'delta', 'reply_end', 'reply_error',
+  'conversation_created', 'coordination_start', 'coordination_end',
+  'discussion_start', 'discussion_end', 'op_request', 'image_start', 'image_end', 'done',
+] as const
+
+/**
+ * 常驻订阅某会话的后端扇出事件（定时任务触发时实时可见）。
+ * 返回取消订阅函数；令牌走 query 参数（EventSource 无法带自定义头）。
+ */
+export function subscribeConversationEvents(conversationId: string, handlers: SendStreamHandlers): () => void {
+  const token = API_TOKEN ? `?token=${encodeURIComponent(API_TOKEN)}` : ''
+  const es = new EventSource(apiUrl(`/api/conversations/${conversationId}/events${token}`))
+  for (const name of STREAM_EVENTS) {
+    es.addEventListener(name, (ev) => {
+      dispatch({ event: name, data: (ev as MessageEvent).data ?? '' }, handlers)
+    })
+  }
+  return () => es.close()
 }
