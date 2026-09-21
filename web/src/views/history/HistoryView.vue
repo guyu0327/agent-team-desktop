@@ -73,6 +73,19 @@ const groups = computed<HistoryGroup[]>(() => {
   return out
 })
 
+/** 用户手动切换过折叠的分组（true=折叠 false=展开）；未记录的走默认：仅最上面的分组展开 */
+const collapsedState = ref(new Map<string, boolean>())
+
+function isCollapsed(g: HistoryGroup, index: number): boolean {
+  // 搜索时全部展开：搜索就是要看到结果，折叠会把命中项藏起来
+  if (keyword.value.trim()) return false
+  return collapsedState.value.get(g.key) ?? index > 0
+}
+
+function toggleGroup(g: HistoryGroup, index: number) {
+  collapsedState.value.set(g.key, !isCollapsed(g, index))
+}
+
 const activeId = computed(() => (route.name === 'HistoryDetail' ? (route.params.id as string) : null))
 
 function clearAgentFilter() {
@@ -148,23 +161,40 @@ async function onCtxSelect(key: string) {
         </span>
       </div>
       <div class="history-list">
-        <template v-for="g in groups" :key="g.key">
-          <div class="group-label">{{ g.label }}</div>
-          <router-link
-            v-for="c in g.items"
-            :key="c.id"
-            :to="`/history/${c.id}`"
-            class="conversation-link"
-            @contextmenu.prevent="ctx = { x: $event.clientX, y: $event.clientY, conv: c }"
-          >
-            <ConversationItem
-              :conversation="c"
-              :name="displayOf(c).name"
-              :avatar="displayOf(c).avatar"
-              :badge="c.category === 'task' ? t('history.taskTag') : undefined"
-              :active="c.id === activeId"
-            />
-          </router-link>
+        <template v-for="(g, gi) in groups" :key="g.key">
+          <button class="group-label" @click="toggleGroup(g, gi)">
+            <svg
+              class="chevron"
+              :class="{ collapsed: isCollapsed(g, gi) }"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            {{ g.label }}
+            <span v-if="isCollapsed(g, gi)" class="group-count">{{ g.items.length }}</span>
+          </button>
+          <template v-if="!isCollapsed(g, gi)">
+            <router-link
+              v-for="c in g.items"
+              :key="c.id"
+              :to="`/history/${c.id}`"
+              class="conversation-link"
+              @contextmenu.prevent="ctx = { x: $event.clientX, y: $event.clientY, conv: c }"
+            >
+              <ConversationItem
+                :conversation="c"
+                :name="displayOf(c).name"
+                :avatar="displayOf(c).avatar"
+                :badge="c.category === 'task' ? t('history.taskTag') : undefined"
+                :active="c.id === activeId"
+              />
+            </router-link>
+          </template>
         </template>
         <div v-if="groups.length === 0" class="empty">
           {{ keyword ? t('history.emptySearch') : t('history.empty') }}
@@ -258,9 +288,41 @@ async function onCtxSelect(key: string) {
 }
 
 .group-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
   padding: $spacing-md $spacing-md $spacing-xs;
+  border: none;
+  background: none;
   font-size: $font-size-xs;
   color: $text-tertiary;
+  text-align: left;
+  cursor: pointer;
+  transition: color $transition-fast;
+
+  &:hover {
+    color: $text-secondary;
+  }
+
+  .chevron {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    transition: transform $transition-fast;
+    transform: rotate(90deg);
+
+    &.collapsed {
+      transform: rotate(0deg);
+    }
+  }
+
+  .group-count {
+    margin-left: auto;
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+    opacity: 0.8;
+  }
 }
 
 .conversation-link {

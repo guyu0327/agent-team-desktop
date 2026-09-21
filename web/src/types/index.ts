@@ -39,6 +39,8 @@ export interface Conversation {
   unreadCount: number
   /** 历史会话归档时间：非空表示已归档（仅历史会话接口返回） */
   archivedTime?: number | null
+  /** 来源通道：wechat=iLink 微信会话（桌面端只读，头像/名称固定为 ClawBot） */
+  channel?: string | null
 }
 
 /** 消息/授权共用的附件信息：path 为服务器上的真实绝对路径；image 类型可直接展示并交给视觉模型 */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { useConversationStore } from '@/stores/conversation'
 import Avatar from '@/components/common/Avatar.vue'
@@ -7,9 +7,11 @@ import ConfirmHost from '@/components/common/ConfirmHost.vue'
 import ToastHost from '@/components/common/ToastHost.vue'
 import ProfilePopover from '@/views/profile/ProfilePopover.vue'
 import SettingsModal from '@/views/profile/SettingsModal.vue'
+import WechatPopover from '@/views/profile/WechatPopover.vue'
 import { showSettings } from '@/composables/settingsModal'
 import { requestClose } from '@/composables/closeConfirm'
 import { desktop } from '@/api/desktop'
+import { getWechatStatus } from '@/api/wechat'
 import { APP_NAME, APP_VERSION } from '@/constants/app'
 import { t } from '@/i18n'
 import appIcon from '@/assets/app-icon.png'
@@ -17,6 +19,32 @@ import appIcon from '@/assets/app-icon.png'
 const userStore = useUserStore()
 const conversationStore = useConversationStore()
 const showProfile = ref(false)
+const showWechat = ref(false)
+const wechatConnected = ref(false)
+let wechatTimer: ReturnType<typeof setInterval> | null = null
+
+async function refreshWechat() {
+  try {
+    wechatConnected.value = (await getWechatStatus()).connected
+  } catch {
+    /* 状态读取失败保持原色 */
+  }
+  // 微信/任务触发的回合没有本地发送方，列表不会随回合结束刷新；
+  // 常驻轮询让微信新消息（含新绑定会话）及时出现在消息列表并亮未读
+  conversationStore.loadConversations().catch(() => {})
+}
+
+onMounted(() => {
+  refreshWechat()
+  wechatTimer = setInterval(refreshWechat, 15000)
+})
+
+onUnmounted(() => {
+  if (wechatTimer) {
+    clearInterval(wechatTimer)
+    wechatTimer = null
+  }
+})
 // macOS 桌面壳：标题栏已隐藏，原生红绿灯悬浮在侧边栏左上角，侧边栏顶部需让出一条拖拽区
 const isMacDesktop = desktop?.platform === 'darwin'
 // Windows 下原生标题栏被隐藏（main.js titleBarStyle: 'hidden'），由这里自绘弱化标题条
@@ -88,6 +116,13 @@ const isWindows = navigator.userAgent.includes('Windows')
       </nav>
 
       <div class="sidebar-bottom">
+        <button class="nav-item" :title="t('nav.wechat')" @click="showWechat = true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="7" y="2" width="10" height="20" rx="2" />
+            <path d="M11 18h2" />
+          </svg>
+          <span class="wechat-dot" :class="{ on: wechatConnected }"></span>
+        </button>
         <button class="nav-item" :title="t('nav.settings')" @click="showSettings = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3" />
@@ -107,6 +142,7 @@ const isWindows = navigator.userAgent.includes('Windows')
     <ToastHost />
     <ProfilePopover v-if="showProfile" @close="showProfile = false" />
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
+    <WechatPopover v-if="showWechat" @close="showWechat = false; refreshWechat()" />
   </div>
 </template>
 
@@ -234,6 +270,27 @@ const isWindows = navigator.userAgent.includes('Windows')
     flex-direction: column;
     gap: $spacing-lg;
     margin-top: $spacing-xxl;
+  }
+
+  .sidebar-bottom {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: $spacing-lg;
+  }
+
+  .wechat-dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: $border-color;
+
+    &.on {
+      background: #34d399;
+    }
   }
 }
 

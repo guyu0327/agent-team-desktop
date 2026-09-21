@@ -6,6 +6,7 @@ import { useConversationStore } from '@/stores/conversation'
 import { useAgentStore } from '@/stores/agent'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { markRead } from '@/api/conversation'
+import { CLAWBOT_AVATAR } from '@/constants/clawbot'
 import { t } from '@/i18n'
 import SearchBar from '@/components/common/SearchBar.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -110,6 +111,7 @@ async function saveRename() {
 }
 
 function displayOf(c: Conversation): { name: string; avatar: string } {
+  if (c.channel === 'wechat') return { name: t('chat.wechatBotName'), avatar: CLAWBOT_AVATAR }
   if (c.type === 'group') return { name: c.name, avatar: '👥' }
   const agent = c.agentId ? agentStore.getById(c.agentId) : undefined
   return { name: agent?.name ?? t('message.deletedAgent'), avatar: agent?.avatar ?? '' }

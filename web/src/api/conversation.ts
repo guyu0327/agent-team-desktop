@@ -256,5 +256,10 @@ export function subscribeConversationEvents(conversationId: string, handlers: Se
       dispatch({ event: name, data: (ev as MessageEvent).data ?? '' }, handlers)
     })
   }
+  es.onerror = () => {
+    // 后端异常收尾不发 done（连接直接断开）：按结束处理清掉「协作中」横幅；
+    // 若回合实际仍在进行，EventSource 自动重连后由快照重放恢复状态
+    handlers.onDone?.()
+  }
   return () => es.close()
 }

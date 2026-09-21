@@ -8,6 +8,7 @@ import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { showSettings } from '@/composables/settingsModal'
 import { stopOrchestration } from '@/api/conversation'
+import { getWechatStatus, updateWechatSettings, type WechatStatus } from '@/api/wechat'
 import type { Agent, Attachment, Message, OpRequest } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
 import FileGrantsPopover from '@/components/common/FileGrantsPopover.vue'
@@ -39,6 +40,7 @@ const listRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
 const menuOpen = ref(false)
 const showHistory = ref(false)
+const showMembers = ref(false)
 const showGrants = ref(false)
 const pendingAttachments = ref<Attachment[]>([])
 
@@ -55,9 +57,59 @@ watch(conversation, (conv) => {
   if (!conv && route.name === 'Chat') router.push('/chat')
 })
 
+// 切换会话时收起上一会话残留的成员弹层
+watch(() => conversation.value?.id, () => {
+  showMembers.value = false
+})
+
+const isWechat = computed(() => conversation.value?.channel === 'wechat')
+
+// ---------- 微信会话：当前处理智能体展示与切换 ----------
+const wechatStatus = ref<WechatStatus | null>(null)
+const showWechatAgentPop = ref(false)
+
+async function refreshWechatStatus() {
+  try {
+    wechatStatus.value = await getWechatStatus()
+  } catch {
+    /* 读取失败保持旧值，下次打开重试 */
+  }
+}
+
+watch(isWechat, (v) => {
+  if (v) refreshWechatStatus()
+  else showWechatAgentPop.value = false
+}, { immediate: true })
+
+/** 配置为空时按服务端规则（编排者优先）展示实际生效的智能体 */
+const wechatAgent = computed<Agent | null>(() => {
+  const id = wechatStatus.value?.agentId
+  if (id) return agentStore.getById(id) ?? null
+  return agentStore.agents.find((a) => a.isOrchestrator) ?? agentStore.agents[0] ?? null
+})
+
+async function setWechatAgent(agentId: string) {
+  const s = wechatStatus.value
+  if (!s) return
+  try {
+    wechatStatus.value = await updateWechatSettings({
+      enabled: s.enabled,
+      agentId,
+      autoWrite: s.autoWrite,
+      autoShell: s.autoShell,
+      maxReplyChars: s.maxReplyChars,
+      roundTimeoutMinutes: s.roundTimeoutMinutes,
+    })
+  } catch {
+    /* 保存失败保持本地原值 */
+  }
+  showWechatAgentPop.value = false
+}
+
 const title = computed(() => {
   const conv = conversation.value
   if (!conv) return t('chat.title')
+  if (isWechat.value) return t('chat.wechatBotName')
   if (conv.type === 'group') return conv.name
   const agent = conv.agentId ? agentStore.getById(conv.agentId) : undefined
   return agent?.name ?? t('common.deletedAgent')
@@ -172,6 +224,8 @@ const memberAgents = computed<Agent[]>(() => {
   return conv.memberIds
     .map((id) => agentStore.getById(id))
     .filter((a): a is Agent => !!a)
+    // 编排者排第一，群成员弹层与 @ 提及候选都优先看到
+    .sort((a, b) => Number(b.isOrchestrator) - Number(a.isOrchestrator))
 })
 
 const mentionCandidates = computed(() => {
@@ -311,6 +365,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopWatch?.()
+  stopWatch = null
   window.removeEventListener('pointerup', onReleaseAnywhere)
   window.removeEventListener('pointercancel', onReleaseAnywhere)
 })
@@ -399,14 +455,20 @@ function jumpToBottom() {
   forceScrollToBottom()
 }
 
+// 常驻订阅扇出事件：微信等后台触发的回合没有本地发送方，正在查看该会话时靠它实时看到流式输出。
+// 普通本地发送的事件只走各自请求的响应流，不会向观察者扇出，两路处理不会重复
+let stopWatch: (() => void) | null = null
+
 watch(
   () => props.id,
   (id) => {
     if (!id) return
+    stopWatch?.()
     mention.value = null
     pendingAttachments.value = []
     conversationStore.setActive(id)
     forceScrollToBottom()
+    stopWatch = conversationStore.watchConversation(id)
   },
   { immediate: true },
 )
@@ -614,17 +676,34 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="chat-view">
+  <div class="chat-view" @click="showWechatAgentPop = false">
     <header class="chat-header drag-region">
       <span class="title">
         {{ title }}
-        <span v-if="conversation?.type === 'group'" class="member-count">
+        <button
+          v-if="conversation?.type === 'group'"
+          class="member-count"
+          :title="t('chat.groupMembers')"
+          @click="showMembers = !showMembers"
+        >
           {{ t('chat.memberCount', { n: conversation.memberIds.length }) }}
-        </span>
+        </button>
       </span>
       <div class="more-wrap">
         <button
-          v-if="conversation?.type === 'single' && conversation?.agentId"
+          v-if="isWechat"
+          class="wechat-agent-chip"
+          :title="t('settings.wechatAgent')"
+          @click.stop="showWechatAgentPop = !showWechatAgentPop"
+        >
+          <Avatar v-if="wechatAgent" :name="wechatAgent.name" :avatar="wechatAgent.avatar" :size="18" />
+          <span class="chip-name">{{ wechatAgent?.name ?? t('common.deletedAgent') }}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <button
+          v-if="!isWechat && conversation?.type === 'single' && conversation?.agentId"
           class="more"
           :title="t('nav.history')"
           @click.stop="showHistory = !showHistory"
@@ -652,8 +731,36 @@ function onKeydown(e: KeyboardEvent) {
           :conversation="conversation"
           @close="menuOpen = false"
         />
+        <!-- 微信会话：处理智能体切换列表（下一条微信消息生效） -->
+        <div v-if="isWechat && showWechatAgentPop" class="wechat-agent-pop" @click.stop>
+          <button class="wa-row" :class="{ on: !wechatStatus?.agentId }" @click="setWechatAgent('')">
+            {{ t('settings.wechatAgentAuto') }}
+          </button>
+          <button
+            v-for="a in agentStore.agents"
+            :key="a.id"
+            class="wa-row"
+            :class="{ on: wechatStatus?.agentId === a.id }"
+            @click="setWechatAgent(a.id)"
+          >
+            <Avatar :name="a.name" :avatar="a.avatar" :size="22" />
+            <span>{{ a.name }}</span>
+          </button>
+        </div>
       </div>
     </header>
+
+    <template v-if="showMembers && memberAgents.length > 0">
+      <div class="member-mask" @click="showMembers = false" />
+      <div class="member-pop">
+        <div class="member-pop-title">{{ t('chat.groupMembers') }}</div>
+        <button v-for="a in memberAgents" :key="a.id" class="member-row" @click="showMembers = false">
+          <Avatar :name="a.name" :avatar="a.avatar" :size="28" />
+          <span class="member-name">{{ a.name }}</span>
+          <span v-if="a.isOrchestrator" class="member-badge">{{ t('common.orchestrator') }}</span>
+        </button>
+      </div>
+    </template>
 
     <div class="list-wrap">
       <div ref="listRef" class="message-list" @scroll="onListScroll">
@@ -667,7 +774,7 @@ function onKeydown(e: KeyboardEvent) {
             :sender-name="senderInfo(msg).name"
             :sender-avatar="senderInfo(msg).avatar"
             :badge="senderBadge(msg)"
-            :show-name="conversation?.type === 'group' && !isSelf(msg)"
+            :show-name="(conversation?.type === 'group' || isWechat) && !isSelf(msg)"
             :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
             :mentionable="conversation?.type === 'group' && !isSelf(msg)"
             @bubble-menu="openMsgCtx($event, msg)"
@@ -748,12 +855,7 @@ function onKeydown(e: KeyboardEvent) {
       </div>
     </div>
 
-    <footer
-      class="input-area"
-      :class="{ dragging: isDragging }"
-      @dragenter="onDragEnter"
-      @dragover="onDragOver"
-      @dragleave="onDragLeave"
+    <footer v-if="!isWechat" class="input-area" :class="{ dragging: isDragging }" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave"
       @drop="onDrop"
     >
       <div v-if="isDragging" class="drop-hint">{{ t('chat.dropHint') }}</div>
@@ -848,6 +950,17 @@ function onKeydown(e: KeyboardEvent) {
 
       <FileGrantsPopover v-if="showGrants" :conversation-id="props.id" @close="showGrants = false" />
     </footer>
+
+    <!-- 微信会话只读：聊天在微信内进行，桌面端仅作镜像展示 -->
+    <footer v-else class="input-area wechat-readonly">
+      <div class="wechat-hint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="7" y="2" width="10" height="20" rx="2" />
+          <path d="M11 18h2" />
+        </svg>
+        <span>{{ t('chat.wechatReadOnly') }}</span>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -898,9 +1011,11 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .chat-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: $spacing-sm;
   padding: 0 $spacing-lg;
   height: 52px;
   flex-shrink: 0;
@@ -915,6 +1030,15 @@ function onKeydown(e: KeyboardEvent) {
       font-size: $font-size-sm;
       font-weight: 400;
       color: $text-tertiary;
+      padding: 0;
+      border: none;
+      background: none;
+      cursor: pointer;
+      transition: color $transition-fast;
+
+      &:hover {
+        color: $primary-color;
+      }
     }
   }
 
@@ -922,6 +1046,69 @@ function onKeydown(e: KeyboardEvent) {
     position: relative;
     display: flex;
     align-items: center;
+  }
+
+  .wechat-agent-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: $spacing-xs;
+    padding: 3px $spacing-sm;
+    border-radius: 999px;
+    background: $bg-input;
+    font-size: $font-size-xs;
+    color: $text-secondary;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background $transition-fast, color $transition-fast;
+
+    svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    &:hover {
+      background: $bg-hover;
+      color: $text-primary;
+    }
+  }
+
+  .wechat-agent-pop {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 40px;
+    z-index: 30;
+    min-width: 200px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: $spacing-xs;
+    background: $bg-panel;
+    border: 1px solid $border-color;
+    border-radius: $radius-md;
+    box-shadow: $shadow-md;
+    display: flex;
+    flex-direction: column;
+
+    .wa-row {
+      display: flex;
+      align-items: center;
+      gap: $spacing-sm;
+      padding: 6px $spacing-sm;
+      border-radius: $radius-sm;
+      font-size: $font-size-sm;
+      color: $text-primary;
+      text-align: left;
+      cursor: pointer;
+
+      &:hover {
+        background: $bg-hover;
+      }
+
+      &.on {
+        color: $primary-color;
+        background: rgba(var(--c-primary-rgb), 0.1);
+      }
+    }
   }
 
   .more {
@@ -940,6 +1127,69 @@ function onKeydown(e: KeyboardEvent) {
     &:hover {
       color: $text-primary;
       background: $bg-hover;
+    }
+  }
+}
+
+.member-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+}
+
+.member-pop {
+  position: absolute;
+  top: 54px;
+  left: $spacing-lg;
+  z-index: 30;
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: $spacing-sm;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  border-radius: $radius-md;
+  box-shadow: $shadow-md;
+
+  .member-pop-title {
+    padding: 2px $spacing-sm $spacing-sm;
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+  }
+
+  .member-row {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    width: 100%;
+    padding: 6px $spacing-sm;
+    border: none;
+    background: none;
+    border-radius: $radius-sm;
+    cursor: pointer;
+    text-align: left;
+    transition: background $transition-fast;
+
+    &:hover {
+      background: $bg-hover;
+    }
+
+    .member-name {
+      font-size: $font-size-sm;
+      color: $text-primary;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .member-badge {
+      flex-shrink: 0;
+      padding: 1px 6px;
+      border-radius: $radius-sm;
+      background: rgba(var(--c-primary-rgb), 0.12);
+      color: $primary-color;
+      font-size: $font-size-xs;
     }
   }
 }
@@ -1296,6 +1546,26 @@ function onKeydown(e: KeyboardEvent) {
     outline: 2px dashed $primary-color;
     outline-offset: -6px;
     background: rgba(var(--c-primary-rgb), 0.06);
+  }
+
+  &.wechat-readonly {
+    align-items: center;
+    justify-content: center;
+
+    .wechat-hint {
+      display: flex;
+      align-items: center;
+      gap: $spacing-sm;
+      padding: $spacing-sm 0;
+      font-size: $font-size-sm;
+      color: $text-tertiary;
+
+      svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+    }
   }
 }
 

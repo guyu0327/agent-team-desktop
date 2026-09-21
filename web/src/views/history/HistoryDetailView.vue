@@ -7,9 +7,11 @@ import { restoreArchivedTask } from '@/api/tasks'
 import { useHistoryStore } from '@/stores/history'
 import { useAgentStore } from '@/stores/agent'
 import { useUserStore } from '@/stores/user'
-import { confirmAction } from '@/composables/confirm'
+import { alertAction, confirmAction } from '@/composables/confirm'
 import { showToast } from '@/composables/toast'
 import MessageBubble from '@/components/common/MessageBubble.vue'
+import ContextMenu from '@/components/common/ContextMenu.vue'
+import { copyImage, copyText } from '@/utils/clipboard'
 import { formatDividerTime } from '@/utils/time'
 import { t } from '@/i18n'
 
@@ -142,6 +144,37 @@ async function removeHistory() {
     showToast(e instanceof Error ? e.message : t('history.deleteFailed'))
   }
 }
+
+// 消息气泡右键菜单（与聊天页一致）：右键点在气泡内图片上时额外提供复制图片
+const msgCtx = ref<{ x: number; y: number; msg: Message; imgSrc: string | null } | null>(null)
+
+function openMsgCtx(e: MouseEvent, msg: Message) {
+  const imgEl = (e.target as HTMLElement | null)?.closest('img') as HTMLImageElement | null
+  msgCtx.value = { x: e.clientX, y: e.clientY, msg, imgSrc: imgEl?.getAttribute('src') ?? null }
+}
+
+const msgCtxItems = computed(() => {
+  if (!msgCtx.value) return []
+  const items = [{ key: 'copy-text', label: t('chat.copyText') }]
+  if (msgCtx.value.imgSrc) items.push({ key: 'copy-image', label: t('chat.copyImage') })
+  return items
+})
+
+async function onMsgCtxSelect(key: string) {
+  const ctx = msgCtx.value
+  if (!ctx) return
+  try {
+    if (key === 'copy-text') {
+      await copyText(ctx.msg.content)
+      showToast(t('chat.copied'))
+    } else if (key === 'copy-image' && ctx.imgSrc) {
+      await copyImage(ctx.imgSrc)
+      showToast(t('chat.imageCopied'))
+    }
+  } catch (err) {
+    alertAction(err instanceof Error ? err.message : t('chat.copyFailed'))
+  }
+}
 </script>
 
 <template>
@@ -175,10 +208,20 @@ async function removeHistory() {
           :sender-avatar="senderInfo(msg).avatar"
           :badge="senderBadge(msg)"
           :show-name="conv?.type === 'group' && !isSelf(msg)"
+          @bubble-menu="openMsgCtx($event, msg)"
         />
       </template>
       <div v-if="messages.length === 0" class="empty">{{ t('history.noMessages') }}</div>
     </div>
+
+    <ContextMenu
+      v-if="msgCtx"
+      :x="msgCtx.x"
+      :y="msgCtx.y"
+      :items="msgCtxItems"
+      @select="onMsgCtxSelect"
+      @close="msgCtx = null"
+    />
   </div>
 </template>
 

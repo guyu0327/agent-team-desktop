@@ -93,13 +93,14 @@ const singleAgent = computed(() => {
     : null
 })
 
-/** 协作任务群成员（点击头部「（N人）」展示） */
+/** 协作任务群成员（点击头部「（N人）」展示），编排者排第一 */
 const memberAgents = computed<Agent[]>(() => {
   const conv = conversation.value
   if (conv?.type !== 'group') return []
   return conv.memberIds
     .map((id) => agentStore.getById(id))
     .filter((a): a is Agent => !!a)
+    .sort((a, b) => Number(b.isOrchestrator) - Number(a.isOrchestrator))
 })
 
 const showMembers = ref(false)
@@ -186,8 +187,10 @@ function senderBadge(msg: Message): string | undefined {
 
 /** 思考中指示条：任务触发到回复开始/接龙间隙显示「谁在思考」 */
 const showThinking = computed(() => {
-  if (!conversationStore.isTyping(props.id)) return false
+  // 任务回合经扇出订阅送达，typing 要到 reply_start 才置位；pending 预告须单独成立，
+  // 否则「立即执行」到首段回复之间的空窗没有指示，用户会以为卡住了
   if (conversationStore.pendingReplyByConv[props.id]) return true
+  if (!conversationStore.isTyping(props.id)) return false
   const last = messages.value[messages.value.length - 1]
   return !(last && last.senderType === 'agent')
 })

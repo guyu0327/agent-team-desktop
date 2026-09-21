@@ -94,13 +94,41 @@ body,
 
 input,
 button,
-textarea {
+textarea,
+select {
   font-family: inherit;
   font-size: inherit;
   outline: none;
   border: none;
   background: none;
   color: inherit;
+}
+
+/* 原生 select 统一去系统边框与箭头，自绘与界面同风格的下拉箭头 */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23666666' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
+  /* 各表单 .input 的 padding 简写优先级更高，需 important 兜底避免文字压住箭头 */
+  padding-right: 30px !important;
+
+  option {
+    background: var(--c-bg-panel);
+    color: var(--c-text-primary);
+  }
+}
+
+html[data-theme='light'] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23999999' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* 禁用/只读输入框：文字灰化并显示不可点击光标，一眼可辨不可编辑 */
+.input:disabled,
+.input[readonly] {
+  color: var(--c-text-tertiary) !important;
+  cursor: not-allowed;
 }
 
 ul,

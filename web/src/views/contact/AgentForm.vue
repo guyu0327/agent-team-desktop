@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { AgentDraft } from '@/types'
 import { useAgentStore } from '@/stores/agent'
@@ -15,19 +15,35 @@ const agentStore = useAgentStore()
 const presetStore = useModelPresetStore()
 
 const isEdit = computed(() => !!props.id)
-const existing = props.id ? agentStore.getById(props.id) : undefined
+const existing = computed(() => (props.id ? agentStore.getById(props.id) : undefined))
 
 const form = reactive<AgentDraft>({
-  name: existing?.name ?? '',
-  avatar: existing?.avatar ?? '',
-  groupName: existing?.groupName ?? '',
-  description: existing?.description ?? '',
-  presetId: existing?.presetId ?? '',
-  imagePresetId: existing?.imagePresetId ?? '',
-  isOrchestrator: existing?.isOrchestrator ?? false,
-  systemPrompt: existing?.systemPrompt ?? '',
-  temperature: existing?.temperature ?? 0.7,
+  name: '',
+  avatar: '',
+  groupName: '',
+  description: '',
+  presetId: '',
+  imagePresetId: '',
+  isOrchestrator: false,
+  systemPrompt: '',
+  temperature: 0.7,
 })
+
+// /contact/add 与 /contact/:id/edit 复用同一组件实例，路由切换时需重放表单回显
+function syncForm() {
+  const e = existing.value
+  form.name = e?.name ?? ''
+  form.avatar = e?.avatar ?? ''
+  form.groupName = e?.groupName ?? ''
+  form.description = e?.description ?? ''
+  form.presetId = e?.presetId ?? ''
+  form.imagePresetId = e?.imagePresetId ?? ''
+  form.isOrchestrator = e?.isOrchestrator ?? false
+  form.systemPrompt = e?.systemPrompt ?? ''
+  form.temperature = e?.temperature ?? 0.7
+}
+
+watch(() => props.id, syncForm, { immediate: true })
 
 const nameError = computed(() => (form.name.trim() ? '' : t('agentForm.nameRequired')))
 
@@ -55,9 +71,34 @@ const existingGroups = computed(() => [
   ...new Set(
     agentStore.agents
       .map((a) => a.groupName)
-      .filter((g): g is string => !!g && g !== existing?.groupName),
+      .filter((g): g is string => !!g && g !== existing.value?.groupName),
   ),
 ])
+
+// 分组输入的自定义建议下拉（替代原生 datalist：系统级下拉无法自定义样式，深色主题下很突兀）
+const groupFocus = ref(false)
+const groupIndex = ref(0)
+const groupSuggestions = computed(() => {
+  const q = form.groupName.trim().toLowerCase()
+  if (!q) return existingGroups.value
+  return existingGroups.value.filter((g) => g.toLowerCase().includes(q))
+})
+
+watch([groupSuggestions, groupFocus], () => {
+  groupIndex.value = 0
+})
+
+function moveGroupSuggestion(delta: number) {
+  const n = groupSuggestions.value.length
+  if (n === 0) return
+  groupIndex.value = (groupIndex.value + delta + n) % n
+}
+
+function applyGroupSuggestion() {
+  const pick = groupSuggestions.value[groupIndex.value]
+  if (groupFocus.value && pick) form.groupName = pick
+  groupFocus.value = false
+}
 
 function pickAvatar(emoji: string) {
   form.avatar = form.avatar === emoji ? '' : emoji
@@ -120,10 +161,32 @@ function cancel() {
 
       <div class="field">
         <label class="label">{{ t('agentForm.groupLabel') }}</label>
-        <input v-model="form.groupName" class="input" list="group-options" maxlength="20" :placeholder="t('agentForm.groupPlaceholder')" />
-        <datalist id="group-options">
-          <option v-for="g in existingGroups" :key="g" :value="g" />
-        </datalist>
+        <div class="group-combo">
+          <input
+            v-model="form.groupName"
+            class="input"
+            maxlength="20"
+            :placeholder="t('agentForm.groupPlaceholder')"
+            autocomplete="off"
+            @focus="groupFocus = true"
+            @blur="groupFocus = false"
+            @keydown.down.prevent="moveGroupSuggestion(1)"
+            @keydown.up.prevent="moveGroupSuggestion(-1)"
+            @keydown.enter.prevent="applyGroupSuggestion"
+            @keydown.esc="groupFocus = false"
+          />
+          <ul v-if="groupFocus && groupSuggestions.length > 0" class="group-suggestions">
+            <li
+              v-for="(g, i) in groupSuggestions"
+              :key="g"
+              :class="{ active: i === groupIndex }"
+              @mousedown.prevent="form.groupName = g; groupFocus = false"
+              @mouseenter="groupIndex = i"
+            >
+              {{ g }}
+            </li>
+          </ul>
+        </div>
       </div>
 
       <div class="field">
@@ -300,6 +363,39 @@ function cancel() {
   &.textarea {
     resize: vertical;
     line-height: 1.5;
+  }
+}
+
+.group-combo {
+  position: relative;
+}
+
+.group-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  border-radius: $radius-md;
+  box-shadow: $shadow-md;
+  max-height: 200px;
+  overflow-y: auto;
+
+  li {
+    padding: 7px $spacing-sm;
+    border-radius: $radius-sm;
+    color: $text-primary;
+    font-size: $font-size-base;
+    cursor: pointer;
+
+    &.active {
+      background: $bg-hover;
+    }
   }
 }
 

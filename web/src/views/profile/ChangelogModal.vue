@@ -16,9 +16,9 @@ const emit = defineEmits<{ close: [] }>()
             <span class="version">v{{ entry.date.replaceAll('-', '.') }}</span>
             <span v-if="entry.date.replaceAll('-', '.') === APP_VERSION" class="current-chip">{{ t('changelog.currentVersion') }}</span>
           </div>
-          <ul class="items">
+          <ol class="items">
             <li v-for="item in entry.items" :key="item">{{ item }}</li>
-          </ul>
+          </ol>
         </div>
       </div>
       <div class="actions">
@@ -94,10 +94,11 @@ const emit = defineEmits<{ close: [] }>()
 
 .items {
   margin-top: $spacing-sm;
-  padding-left: 18px;
+  padding-left: 22px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  list-style: decimal;
 
   li {
     font-size: $font-size-sm;
@@ -106,6 +107,7 @@ const emit = defineEmits<{ close: [] }>()
 
     &::marker {
       color: $text-tertiary;
+      font-variant-numeric: tabular-nums;
     }
   }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { ModelPresetDraft, ModelPresetProtocol } from '@/types'
 import { useModelPresetStore } from '@/stores/modelPreset'
@@ -11,15 +11,27 @@ const router = useRouter()
 const presetStore = useModelPresetStore()
 
 const isEdit = computed(() => !!props.id)
-const existing = props.id ? presetStore.findById(props.id) : undefined
+const existing = computed(() => (props.id ? presetStore.findById(props.id) : undefined))
 
 const form = reactive<ModelPresetDraft & { apiKey: string }>({
-  name: existing?.name ?? '',
-  protocol: existing?.protocol ?? 'openai-chat',
-  baseUrl: existing?.baseUrl ?? '',
+  name: '',
+  protocol: 'openai-chat',
+  baseUrl: '',
   apiKey: '',
-  remark: existing?.remark ?? '',
+  remark: '',
 })
+
+// /models/add 与 /models/:id/edit 复用同一组件实例，路由切换时需重放表单回显
+function syncForm() {
+  const e = existing.value
+  form.name = e?.name ?? ''
+  form.protocol = e?.protocol ?? 'openai-chat'
+  form.baseUrl = e?.baseUrl ?? ''
+  form.apiKey = ''
+  form.remark = e?.remark ?? ''
+}
+
+watch(() => props.id, syncForm, { immediate: true })
 
 const PROTOCOL_OPTIONS = computed<{ value: ModelPresetProtocol; label: string }[]>(() => [
   { value: 'openai-chat', label: t('models.protocolChat') },
