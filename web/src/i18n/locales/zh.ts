@@ -170,6 +170,8 @@ const zh = {
     groupMembers: '群成员',
     wechatBotName: '微信ClawBot',
     wechatReadOnly: '此会话来自微信，请在微信中继续对话',
+    resetSession: '重置会话',
+    resetSessionMsg: '重置后，当前聊天记录将存入历史会话（微信会话不支持恢复聊天），微信消息将从全新会话开始。',
     pin: '置顶',
     unpin: '取消置顶',
     newSession: '开始新会话',

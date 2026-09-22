@@ -48,6 +48,9 @@ export const useConversationStore = defineStore('conversation', () => {
 
   /** 同一会话的发送串行化，避免两次发送的回复流交错 */
   const sendQueue = new Map<string, Promise<void>>()
+  /** 本地发送回合（POST 响应流）在途的会话：响应流事件不向观察者扇出、切页重挂载后也无重放，
+   *  store 里的思考/流式状态全靠它实时维护，重挂载清理时必须跳过这些会话 */
+  const activeSendConvs = new Set<string>()
 
   const sortedConversations = computed(() =>
     [...conversations.value].sort((a, b) => {
@@ -211,6 +214,12 @@ export const useConversationStore = defineStore('conversation', () => {
     const cidOf = (e: { conversationId?: string }) => e.conversationId ?? conversationId
     const handlers: SendStreamHandlers = {
       onUserMessage: (msg) => pushMessage(msg),
+      onSystemNote: (msg) => {
+        // 系统标注（微信切换等）只补进消息流渲染分隔条：不当新消息，不更新预览、不计未读
+        const list = messagesMap.value[msg.conversationId]
+        if (!list || list.some((m) => m.id === msg.id)) return
+        list.push(msg)
+      },
       onReplyStart: (e) => {
         const cid = cidOf(e)
         typingByConv.value[cid] = true
@@ -315,12 +324,14 @@ export const useConversationStore = defineStore('conversation', () => {
 
   async function doSend(conversationId: string, content: string, attachments: Attachment[]) {
     const { handlers, finish } = streamHandlers(conversationId)
+    activeSendConvs.add(conversationId)
     try {
       // 思考中状态从发出消息即开始（此前要到 reply_start 才置位，而 reply_start 与首个
       // 文本增量几乎同时到达，动画基本不可见），直到本轮流式回复结束由 finally 清理
       typingByConv.value[conversationId] = true
       await sendMessageStream(conversationId, content, handlers, attachments)
     } finally {
+      activeSendConvs.delete(conversationId)
       await finish()
     }
   }
@@ -331,11 +342,15 @@ export const useConversationStore = defineStore('conversation', () => {
    */
   function watchConversation(conversationId: string): () => void {
     // 重挂载（切走再切回）时先清掉上一订阅可能残留的会话状态：后端会在注册观察者时
-    // 重放仍在进行的协作与流中回复；回合已结束则保持干净，避免残留的协作条/思考指示
-    delete orchestratingByConv.value[conversationId]
-    delete discussingByConv.value[conversationId]
-    typingByConv.value[conversationId] = false
-    delete pendingReplyByConv.value[conversationId]
+    // 重放仍在进行的协作与流中回复；回合已结束则保持干净，避免残留的协作条/思考指示。
+    // 但本地发送回合（POST 响应流）在途时不能清：它不向观察者扇出、没有重放，
+    // 思考条/头像/流式气泡的状态由响应流在 store 里实时维护，清掉就永远丢失了
+    if (!activeSendConvs.has(conversationId)) {
+      delete orchestratingByConv.value[conversationId]
+      delete discussingByConv.value[conversationId]
+      typingByConv.value[conversationId] = false
+      delete pendingReplyByConv.value[conversationId]
+    }
     const { handlers, finish } = streamHandlers(conversationId)
     // 回合结束（done 事件）才做收尾清理；取消订阅≠回合结束，切走时协作可能仍在进行
     handlers.onDone = () => finish().catch(() => {})

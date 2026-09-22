@@ -41,6 +41,8 @@ export interface Conversation {
   archivedTime?: number | null
   /** 来源通道：wechat=iLink 微信会话（桌面端只读，头像/名称固定为 ClawBot） */
   channel?: string | null
+  /** 微信好友短标识：非空时显示为「微信ClawBot-xxxx」区分不同好友的会话 */
+  wechatPeer?: string | null
 }
 
 /** 消息/授权共用的附件信息：path 为服务器上的真实绝对路径；image 类型可直接展示并交给视觉模型 */
@@ -58,7 +60,7 @@ export interface Message {
   content: string
   attachments?: Attachment[]
   timestamp: number
-  type: 'text' | 'error'
+  type: 'text' | 'error' | 'system'
   /** 定时任务回合标注：本条消息由哪个定时任务触发产生 */
   taskId?: string | null
   taskName?: string | null

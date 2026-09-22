@@ -172,6 +172,8 @@ const en: typeof zh = {
     groupMembers: 'Group Members',
     wechatBotName: 'WeChat ClawBot',
     wechatReadOnly: 'This conversation lives in WeChat — continue chatting there',
+    resetSession: 'Reset conversation',
+    resetSessionMsg: 'Current messages will be archived to history (WeChat conversations cannot be restored as chats), and WeChat messages will start in a fresh conversation.',
     pin: 'Pin',
     unpin: 'Unpin',
     newSession: 'Start new session',

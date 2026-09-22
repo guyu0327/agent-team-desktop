@@ -120,6 +120,8 @@ export interface SendStreamHandlers {
   /** 文生图开始/结束（generate_image 执行窗口，按会话展示生成动画） */
   onImageStart?(e: { agentId: string; agentName: string; conversationId: string }): void
   onImageEnd?(e: { conversationId: string }): void
+  /** 系统标注消息（微信通道切换处理智能体等），渲染为居中分隔条 */
+  onSystemNote?(msg: Message): void
   onDone?(): void
 }
 
@@ -232,6 +234,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
     case 'image_end':
       handlers.onImageEnd?.(payload)
       break
+    case 'system_note':
+      handlers.onSystemNote?.(payload as Message)
+      break
     case 'done':
       handlers.onDone?.()
       break
@@ -241,7 +246,8 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
 const STREAM_EVENTS = [
   'user_message', 'reply_start', 'reply_pending', 'delta', 'reply_end', 'reply_error',
   'conversation_created', 'coordination_start', 'coordination_end',
-  'discussion_start', 'discussion_end', 'op_request', 'image_start', 'image_end', 'done',
+  'discussion_start', 'discussion_end', 'op_request', 'image_start', 'image_end',
+  'system_note', 'done',
 ] as const
 
 /**

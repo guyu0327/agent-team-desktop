@@ -52,3 +52,8 @@ export function cancelWechatLogin(): Promise<WechatLoginState> {
 export function disconnectWechat(): Promise<WechatStatus> {
   return request('/wechat/disconnect', { method: 'POST' })
 }
+
+/** 重置微信会话：旧会话归档进历史（不可恢复聊天），返回新会话 id */
+export function resetWechatConversation(conversationId: string): Promise<{ conversationId: string }> {
+  return request('/wechat/reset', { method: 'POST', body: { conversationId } })
+}

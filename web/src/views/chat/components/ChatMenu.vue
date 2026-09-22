@@ -6,6 +6,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
+import { resetWechatConversation } from '@/api/wechat'
 import Avatar from '@/components/common/Avatar.vue'
 import { t } from '@/i18n'
 
@@ -16,6 +17,8 @@ const router = useRouter()
 const agentStore = useAgentStore()
 const conversationStore = useConversationStore()
 const presetStore = useModelPresetStore()
+
+const isWechat = computed(() => props.conversation.channel === 'wechat')
 
 const rootEl = ref<HTMLElement>()
 
@@ -83,6 +86,24 @@ async function deleteChat() {
   try {
     await conversationStore.archiveConversation(props.conversation.id)
     router.push('/chat')
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+  }
+}
+
+/** 微信会话重置：旧会话归档进历史（不可恢复聊天），绑定迁移到全新会话，消息无缝流入 */
+async function resetWechat() {
+  const ok = await confirmAction({
+    title: t('chat.resetSession'),
+    message: t('chat.resetSessionMsg'),
+    confirmText: t('chat.resetSession'),
+  })
+  if (!ok) return
+  emit('close')
+  try {
+    const res = await resetWechatConversation(props.conversation.id)
+    await conversationStore.loadConversations()
+    router.push(`/chat/${res.conversationId}`)
   } catch (e) {
     alertAction(e instanceof Error ? e.message : t('common.opFailed'))
   }
@@ -266,7 +287,15 @@ function kick(agent: Agent) {
         </svg>
         {{ conversation.pinned ? t('chat.unpin') : t('chat.pin') }}
       </button>
-      <button class="menu-item" @click="startNewChat">
+      <button v-if="isWechat" class="menu-item" @click="resetWechat">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+          />
+        </svg>
+        {{ t('chat.resetSession') }}
+      </button>
+      <button v-else class="menu-item" @click="startNewChat">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path
             d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"

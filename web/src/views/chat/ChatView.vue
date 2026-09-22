@@ -109,7 +109,7 @@ async function setWechatAgent(agentId: string) {
 const title = computed(() => {
   const conv = conversation.value
   if (!conv) return t('chat.title')
-  if (isWechat.value) return t('chat.wechatBotName')
+  if (isWechat.value) return conv.wechatPeer ? `${t('chat.wechatBotName')}-${conv.wechatPeer}` : t('chat.wechatBotName')
   if (conv.type === 'group') return conv.name
   const agent = conv.agentId ? agentStore.getById(conv.agentId) : undefined
   return agent?.name ?? t('common.deletedAgent')
@@ -768,7 +768,9 @@ function onKeydown(e: KeyboardEvent) {
           <div v-if="shouldShowDivider(i)" class="time-divider">
             {{ formatDividerTime(msg.timestamp) }}
           </div>
+          <div v-if="msg.senderType === 'system'" class="system-note">{{ msg.content }}</div>
           <MessageBubble
+            v-else
             :message="msg"
             :self="isSelf(msg)"
             :sender-name="senderInfo(msg).name"
@@ -1207,6 +1209,19 @@ function onKeydown(e: KeyboardEvent) {
     align-self: center;
     font-size: $font-size-xs;
     color: $text-tertiary;
+  }
+
+  /* 系统标注（如微信会话的处理智能体切换记录）：居中弱化展示 */
+  .system-note {
+    align-self: center;
+    max-width: 80%;
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+    background: var(--c-bg-hover);
+    border-radius: 999px;
+    padding: 2px 12px;
+    text-align: center;
+    word-break: break-all;
   }
 
   .empty {

@@ -34,6 +34,9 @@ const conv = computed<Conversation | undefined>(() => historyStore.archived.find
 
 const title = computed(() => {
   if (!conv.value) return t('history.title')
+  // 微信归档固定显示机器人名（切过智能体后 agentId 已不代表最初处理者）；有好友标识时加后缀区分
+  if (conv.value.channel === 'wechat')
+    return conv.value.wechatPeer ? `${t('chat.wechatBotName')}-${conv.value.wechatPeer}` : t('chat.wechatBotName')
   // 任务归档的标题就是任务名
   if (conv.value.category === 'task') return conv.value.name || t('history.taskTag')
   if (conv.value.type === 'group') return conv.value.name || t('history.group')
@@ -183,12 +186,12 @@ async function onMsgCtxSelect(key: string) {
       <span class="title">{{ title }}</span>
       <span class="archive-tag">{{ tagText }}</span>
       <div class="spacer" />
-      <!-- 普通归档可恢复会话；任务归档按快照恢复定时任务 -->
-      <button v-if="conv?.category !== 'task'" class="primary-btn" :disabled="restoring" @click="continueChat">
-        {{ restoring ? t('history.restoring') : t('history.continueChat') }}
-      </button>
-      <button v-else class="primary-btn" :disabled="restoring" @click="restoreTask">
+      <!-- 任务归档按快照恢复定时任务；普通归档可恢复会话；微信归档不可恢复聊天，仅供留档查看 -->
+      <button v-if="conv?.category === 'task'" class="primary-btn" :disabled="restoring" @click="restoreTask">
         {{ t('history.restoreTask') }}
+      </button>
+      <button v-else-if="conv?.channel !== 'wechat'" class="primary-btn" :disabled="restoring" @click="continueChat">
+        {{ restoring ? t('history.restoring') : t('history.continueChat') }}
       </button>
       <button class="danger-btn" @click="removeHistory">{{ t('common.delete') }}</button>
     </header>
@@ -201,7 +204,9 @@ async function onMsgCtxSelect(key: string) {
         <div v-if="shouldShowDivider(i)" class="time-divider">
           {{ formatDividerTime(msg.timestamp) }}
         </div>
+        <div v-if="msg.senderType === 'system'" class="system-note">{{ msg.content }}</div>
         <MessageBubble
+          v-else
           :message="msg"
           :self="isSelf(msg)"
           :sender-name="senderInfo(msg).name"
@@ -333,6 +338,19 @@ async function onMsgCtxSelect(key: string) {
   align-self: center;
   font-size: $font-size-xs;
   color: $text-tertiary;
+}
+
+/* 系统标注（如微信会话的处理智能体切换记录）：居中弱化展示 */
+.system-note {
+  align-self: center;
+  max-width: 80%;
+  font-size: $font-size-xs;
+  color: $text-tertiary;
+  background: var(--c-bg-hover);
+  border-radius: 999px;
+  padding: 2px 12px;
+  text-align: center;
+  word-break: break-all;
 }
 
 .empty {
