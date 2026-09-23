@@ -12,6 +12,7 @@ import ContextMenu from '@/components/common/ContextMenu.vue'
 import ConversationItem from '@/views/message/components/ConversationItem.vue'
 import { CLAWBOT_AVATAR } from '@/constants/clawbot'
 import { dayKeyOf, dayLabelOf } from '@/utils/time'
+import { exportConversation } from '@/utils/chatExport'
 import { t } from '@/i18n'
 
 const route = useRoute()
@@ -99,10 +100,13 @@ function clearAgentFilter() {
 // 历史会话右键菜单
 const ctx = ref<{ x: number; y: number; conv: Conversation } | null>(null)
 
+/** 右键菜单与归档详情页「⋯」一致：导出 + 恢复任务/继续聊天 + 删除，顺序按 不影响数据→更新→删除 */
 const ctxItems = computed(() => {
   if (!ctx.value) return []
-  // 任务归档：恢复任务 + 删除；普通归档：继续聊天 + 删除；微信归档不可恢复聊天
-  const items = []
+  // 任务归档可恢复定时任务；普通归档可继续聊天；微信归档不可恢复聊天
+  const items: { key: string; label: string; danger?: boolean }[] = [
+    { key: 'export', label: t('chat.exportChat') },
+  ]
   if (ctx.value.conv.category === 'task') {
     items.push({ key: 'restore-task', label: t('history.restoreTask') })
   } else if (ctx.value.conv.channel !== 'wechat') {
@@ -115,6 +119,10 @@ const ctxItems = computed(() => {
 async function onCtxSelect(key: string) {
   const c = ctx.value?.conv
   if (!c) return
+  if (key === 'export') {
+    exportConversation(c, 'history')
+    return
+  }
   if (key === 'restore-task') {
     try {
       const task = await restoreArchivedTask(c.id)

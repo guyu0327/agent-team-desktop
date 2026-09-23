@@ -6,6 +6,7 @@ import { useConversationStore } from '@/stores/conversation'
 import { useAgentStore } from '@/stores/agent'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { markRead } from '@/api/conversation'
+import { exportConversation } from '@/utils/chatExport'
 import { CLAWBOT_AVATAR } from '@/constants/clawbot'
 import { t } from '@/i18n'
 import SearchBar from '@/components/common/SearchBar.vue'
@@ -31,10 +32,12 @@ const convCtx = ref<{ x: number; y: number; conv: Conversation } | null>(null)
 const renameTarget = ref<Conversation | null>(null)
 const renameDraft = ref('')
 
+/** 右键菜单与聊天页「⋯」一致：导出 + 置顶/已读/重命名/新会话 + 删除，顺序按 不影响数据→更新→删除 */
 const convCtxItems = computed(() => {
   const c = convCtx.value?.conv
   if (!c) return []
   const items: { key: string; label: string; danger?: boolean }[] = [
+    { key: 'export', label: t('chat.exportChat') },
     { key: 'pin', label: c.pinned ? t('chat.unpin') : t('chat.pin') },
   ]
   if (c.unreadCount > 0) items.push({ key: 'read', label: t('message.markRead') })
@@ -48,6 +51,10 @@ const convCtxItems = computed(() => {
 async function onConvCtxSelect(key: string) {
   const c = convCtx.value?.conv
   if (!c) return
+  if (key === 'export') {
+    exportConversation(c, c.type === 'group' ? 'group' : 'single')
+    return
+  }
   if (key === 'pin') {
     conversationStore.togglePinned(c.id)
     return

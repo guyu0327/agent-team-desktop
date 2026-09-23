@@ -6,7 +6,9 @@ import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
+import { resetGroupConversation } from '@/api/conversation'
 import { resetWechatConversation } from '@/api/wechat'
+import { exportConversation } from '@/utils/chatExport'
 import Avatar from '@/components/common/Avatar.vue'
 import { t } from '@/i18n'
 
@@ -49,6 +51,12 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 function togglePin() {
   conversationStore.togglePinned(props.conversation.id)
   emit('close')
+}
+
+/** 导出当前会话全部消息为 Markdown 文件（附件仅标注文本） */
+async function exportChat() {
+  emit('close')
+  await exportConversation(props.conversation, props.conversation.type === 'group' ? 'group' : 'single')
 }
 
 /** 开始新会话：当前会话入历史，立即打开与该智能体的全新会话 */
@@ -127,6 +135,25 @@ async function disbandGroup() {
   }
 }
 
+/** 群聊重置：旧群归档进历史会话，原群名/成员/聊天模式重建新群，一键从头开始 */
+async function resetGroup() {
+  const name = props.conversation.name || t('chat.thisGroup')
+  const ok = await confirmAction({
+    title: t('chat.resetSession'),
+    message: t('chat.resetGroupMsg', { name }),
+    confirmText: t('chat.resetSession'),
+  })
+  if (!ok) return
+  emit('close')
+  try {
+    const fresh = await resetGroupConversation(props.conversation.id)
+    await conversationStore.loadConversations()
+    router.push(`/chat/${fresh.id}`)
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+  }
+}
+
 function startEdit() {
   nameDraft.value = props.conversation.name
   editingName.value = true
@@ -169,6 +196,13 @@ function invite(agent: Agent) {
 function kick(agent: Agent) {
   conversationStore.removeGroupMember(props.conversation.id, agent.id)
 }
+
+/** 点击成员头像快速跳转到智能体界面（踢人模式下点击仍是移除） */
+function openAgent(agent: Agent) {
+  if (kicking.value) return
+  emit('close')
+  router.push(`/contact/${agent.id}`)
+}
 </script>
 
 <template>
@@ -181,7 +215,7 @@ function kick(agent: Agent) {
           class="member-cell"
           :class="{ kickable: kicking }"
           :title="kicking ? t('chat.kickMember', { name: m.name }) : m.name"
-          @click="kicking && kick(m)"
+          @click="kicking ? kick(m) : openAgent(m)"
         >
           <div class="cell-avatar">
             <Avatar :name="m.name" :avatar="m.avatar" :size="40" />
@@ -256,6 +290,12 @@ function kick(agent: Agent) {
       </div>
 
       <div class="menu-section">
+        <button class="menu-item" @click="exportChat">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+          </svg>
+          {{ t('chat.exportChat') }}
+        </button>
         <button class="menu-item" @click="togglePin">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
@@ -263,6 +303,14 @@ function kick(agent: Agent) {
             />
           </svg>
           {{ conversation.pinned ? t('chat.unpin') : t('chat.pin') }}
+        </button>
+        <button class="menu-item" @click="resetGroup">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+            />
+          </svg>
+          {{ t('chat.resetSession') }}
         </button>
       </div>
 
@@ -279,6 +327,12 @@ function kick(agent: Agent) {
     </template>
 
     <template v-else>
+      <button class="menu-item" @click="exportChat">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+        </svg>
+        {{ t('chat.exportChat') }}
+      </button>
       <button class="menu-item" @click="togglePin">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path
@@ -346,11 +400,13 @@ function kick(agent: Agent) {
   flex-direction: column;
   align-items: center;
   gap: $spacing-xs;
-  cursor: default;
+  cursor: pointer;
+
+  &:hover .cell-name {
+    color: $primary-color;
+  }
 
   &.kickable {
-    cursor: pointer;
-
     &:hover .cell-name {
       color: #fa5151;
     }

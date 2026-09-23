@@ -19,6 +19,11 @@ export interface DesktopBridge {
   /** 原生文件选择：返回所选路径数组，取消返回 null */
   pickFiles: (opts?: { title?: string; defaultPath?: string; multi?: boolean }) => Promise<string[] | null>
   pickDirectory: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
+  /** 文本另存为：系统保存对话框选位置后写入（聊天记录导出等），取消返回 canceled */
+  saveTextFile?: (
+    defaultName: string,
+    content: string,
+  ) => Promise<{ ok?: boolean; path?: string; error?: string; canceled?: boolean }>
   /** 系统设置：开机自启。getLoginItem 返回当前状态；setLoginItem 切换并返回实际生效状态 */
   getLoginItem?: () => Promise<boolean>
   setLoginItem?: (open: boolean) => Promise<boolean>

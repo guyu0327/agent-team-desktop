@@ -11,10 +11,18 @@ import type { Agent, Message, OpRequest, ScheduledTask } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import Avatar from '@/components/common/Avatar.vue'
-import { deleteTask, listTasksOfConversation, runTaskNow, updateTask } from '@/api/tasks'
+import {
+  deleteConversationTasks,
+  deleteTask,
+  listTasksOfConversation,
+  runTaskNow,
+  updateConversationTaskStatus,
+  updateTask,
+} from '@/api/tasks'
 import TaskFormModal from './components/TaskFormModal.vue'
 import { formatDividerTime } from '@/utils/time'
 import { copyText } from '@/utils/clipboard'
+import { exportConversation } from '@/utils/chatExport'
 import { showToast } from '@/composables/toast'
 import { t } from '@/i18n'
 
@@ -371,6 +379,88 @@ function onTaskSaved() {
   refreshTasks()
   conversationStore.loadTaskConversations().catch(() => {})
 }
+
+/** 批量暂停/恢复：与列表右键菜单一致，作用于该主体全部任务 */
+async function bulkStatusAll(status: 'active' | 'paused') {
+  try {
+    await updateConversationTaskStatus(props.id, status)
+    refreshTasks()
+    conversationStore.loadTaskConversations().catch(() => {})
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+  }
+}
+
+/** 删除该主体全部任务，删光后主体从列表消失 */
+async function removeAllTasks() {
+  const ok = await confirmAction({
+    title: t('tasks.deleteAll'),
+    message: t('tasks.deleteAllMsg'),
+    confirmText: t('common.delete'),
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await deleteConversationTasks(props.id)
+    router.push('/tasks')
+    refreshTasks()
+    conversationStore.loadTaskConversations().catch(() => {})
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('common.opFailed'))
+  }
+}
+
+/** 导出当前任务会话全部消息为 Markdown 文件 */
+async function exportChat() {
+  const conv = conversation.value
+  if (!conv) return
+  await exportConversation(conv, 'task')
+}
+
+/** 页头「更多」菜单：任务操作与导出全部收纳于此，页头只留标题与状态 */
+const moreCtx = ref<{ x: number; y: number } | null>(null)
+/** 菜单顺序全局统一：不影响数据 → 更新数据 → 删除数据 */
+const moreItems = computed(() => {
+  const items: { key: string; label: string; danger?: boolean }[] = []
+  const task = currentTask.value
+  // 顶部：不影响数据
+  if (task && !running.value) items.push({ key: 'run', label: t('tasks.runNow') })
+  items.push({ key: 'export', label: t('chat.exportChat') })
+  // 中间：更新数据（单个任务操作在前，批量在后）
+  if (task) {
+    items.push({ key: 'edit', label: t('tasks.edit') })
+    if (task.status !== 'done') {
+      items.push({ key: 'pause', label: task.status === 'paused' ? t('tasks.resume') : t('tasks.pause') })
+    }
+  }
+  // 批量操作与列表右键一致：有暂停的可全部恢复、有进行中的可全部暂停；协作任务群只有一个任务不展示
+  if (conversation.value?.type !== 'group') {
+    if (tasks.value.some((x) => x.status === 'paused'))
+      items.push({ key: 'resume-all', label: t('tasks.resumeAll') })
+    if (tasks.value.some((x) => x.status === 'active'))
+      items.push({ key: 'pause-all', label: t('tasks.pauseAll') })
+  }
+  // 底部：删除数据
+  if (task) items.push({ key: 'delete', label: t('common.delete'), danger: true })
+  if (conversation.value?.type !== 'group')
+    items.push({ key: 'delete-all', label: t('tasks.deleteAll'), danger: true })
+  return items
+})
+
+function openMore(e: MouseEvent) {
+  moreCtx.value = { x: e.clientX, y: e.clientY }
+}
+
+async function onMoreSelect(key: string) {
+  if (key === 'run') await runNow()
+  else if (key === 'edit') showTaskForm.value = true
+  else if (key === 'pause') await togglePause()
+  else if (key === 'delete') await removeTask()
+  else if (key === 'resume-all') await bulkStatusAll('active')
+  else if (key === 'pause-all') await bulkStatusAll('paused')
+  else if (key === 'delete-all') await removeAllTasks()
+  else if (key === 'export') await exportChat()
+}
 </script>
 
 <template>
@@ -390,19 +480,13 @@ function onTaskSaved() {
           {{ statusLabel(currentTask.status) }}
         </span>
       </span>
-      <div v-if="currentTask" class="head-actions">
-        <button class="head-btn run" :disabled="running" @click="runNow">{{ t('tasks.runNow') }}</button>
-        <button class="head-btn" @click="showTaskForm = true">{{ t('tasks.edit') }}</button>
-        <button
-          v-if="currentTask.status !== 'done'"
-          class="head-btn"
-          :class="currentTask.status === 'paused' ? 'resume' : 'warn'"
-          @click="togglePause"
-        >
-          {{ currentTask.status === 'paused' ? t('tasks.resume') : t('tasks.pause') }}
-        </button>
-        <button class="head-btn danger" @click="removeTask">{{ t('common.delete') }}</button>
-      </div>
+      <button class="head-more" :title="t('common.more')" @click.stop="openMore($event)">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="5" cy="12" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="19" cy="12" r="1.8" />
+        </svg>
+      </button>
     </header>
 
     <template v-if="showMembers && memberAgents.length > 0">
@@ -450,6 +534,14 @@ function onTaskSaved() {
           :items="msgCtxItems"
           @select="onMsgCtxSelect"
           @close="msgCtx = null"
+        />
+        <ContextMenu
+          v-if="moreCtx"
+          :x="moreCtx.x"
+          :y="moreCtx.y"
+          :items="moreItems"
+          @select="onMoreSelect"
+          @close="moreCtx = null"
         />
         <div v-if="imageAgentName" class="image-gen-tip">
           <span class="ring" />
@@ -610,12 +702,28 @@ function onTaskSaved() {
     }
   }
 
-  .head-actions {
+  .head-more {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: $spacing-sm;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
     margin-left: $spacing-md;
+    border-radius: $radius-sm;
+    color: $text-secondary;
+    cursor: pointer;
+    transition: background $transition-fast, color $transition-fast;
+
+    svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    &:hover {
+      background: $bg-panel-hover;
+      color: $text-primary;
+    }
   }
 }
 

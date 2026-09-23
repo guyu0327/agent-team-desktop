@@ -13,6 +13,7 @@ import MessageBubble from '@/components/common/MessageBubble.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { copyImage, copyText } from '@/utils/clipboard'
 import { formatDividerTime } from '@/utils/time'
+import { exportConversation } from '@/utils/chatExport'
 import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
@@ -148,6 +149,39 @@ async function removeHistory() {
   }
 }
 
+/** 导出该归档会话全部消息为 Markdown 文件 */
+async function exportChat() {
+  if (!conv.value) return
+  await exportConversation(conv.value, 'history')
+}
+
+/** 页头「更多」菜单：低频操作（导出等）收纳处 */
+const moreCtx = ref<{ x: number; y: number } | null>(null)
+/** 菜单顺序全局统一：不影响数据 → 更新数据 → 删除数据；与列表右键菜单一致 */
+const moreItems = computed(() => {
+  const items: { key: string; label: string; danger?: boolean }[] = []
+  const c = conv.value
+  if (!c) return items
+  items.push({ key: 'export', label: t('chat.exportChat') })
+  // 任务归档只能恢复任务；微信归档不可恢复聊天
+  if (c.category === 'task') items.push({ key: 'restore-task', label: t('history.restoreTask') })
+  else if (c.channel !== 'wechat')
+    items.push({ key: 'continue', label: restoring.value ? t('history.restoring') : t('history.continueChat') })
+  items.push({ key: 'delete', label: t('common.delete'), danger: true })
+  return items
+})
+
+function openMore(e: MouseEvent) {
+  moreCtx.value = { x: e.clientX, y: e.clientY }
+}
+
+async function onMoreSelect(key: string) {
+  if (key === 'restore-task') await restoreTask()
+  else if (key === 'continue') await continueChat()
+  else if (key === 'export') await exportChat()
+  else if (key === 'delete') await removeHistory()
+}
+
 // 消息气泡右键菜单（与聊天页一致）：右键点在气泡内图片上时额外提供复制图片
 const msgCtx = ref<{ x: number; y: number; msg: Message; imgSrc: string | null } | null>(null)
 
@@ -186,14 +220,14 @@ async function onMsgCtxSelect(key: string) {
       <span class="title">{{ title }}</span>
       <span class="archive-tag">{{ tagText }}</span>
       <div class="spacer" />
-      <!-- 任务归档按快照恢复定时任务；普通归档可恢复会话；微信归档不可恢复聊天，仅供留档查看 -->
-      <button v-if="conv?.category === 'task'" class="primary-btn" :disabled="restoring" @click="restoreTask">
-        {{ t('history.restoreTask') }}
+      <!-- 任务归档按快照恢复定时任务；普通归档可恢复会话；微信归档不可恢复聊天，仅供留档查看。操作全部收进「更多」菜单 -->
+      <button class="head-more" :title="t('common.more')" @click.stop="openMore($event)">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <circle cx="5" cy="12" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="19" cy="12" r="1.8" />
+        </svg>
       </button>
-      <button v-else-if="conv?.channel !== 'wechat'" class="primary-btn" :disabled="restoring" @click="continueChat">
-        {{ restoring ? t('history.restoring') : t('history.continueChat') }}
-      </button>
-      <button class="danger-btn" @click="removeHistory">{{ t('common.delete') }}</button>
     </header>
 
     <div class="message-list">
@@ -226,6 +260,14 @@ async function onMsgCtxSelect(key: string) {
       :items="msgCtxItems"
       @select="onMsgCtxSelect"
       @close="msgCtx = null"
+    />
+    <ContextMenu
+      v-if="moreCtx"
+      :x="moreCtx.x"
+      :y="moreCtx.y"
+      :items="moreItems"
+      @select="onMoreSelect"
+      @close="moreCtx = null"
     />
   </div>
 </template>
@@ -270,37 +312,26 @@ async function onMsgCtxSelect(key: string) {
   }
 }
 
-.primary-btn,
-.danger-btn {
+.head-more {
   flex-shrink: 0;
-  padding: 7px $spacing-xl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   border-radius: $radius-sm;
-  font-size: $font-size-sm;
+  color: $text-secondary;
   cursor: pointer;
-  transition: background $transition-fast, opacity $transition-fast;
+  transition: background $transition-fast, color $transition-fast;
 
-  &:disabled {
-    opacity: 0.6;
-    cursor: default;
+  svg {
+    width: 20px;
+    height: 20px;
   }
-}
 
-.primary-btn {
-  background: $primary-color;
-  color: $text-white;
-
-  &:hover:not(:disabled) {
-    background: $primary-hover;
-  }
-}
-
-.danger-btn {
-  background: $bg-input;
-  border: 1px solid rgba(250, 81, 81, 0.45);
-  color: #fa5151;
-
-  &:hover:not(:disabled) {
-    background: rgba(250, 81, 81, 0.12);
+  &:hover {
+    background: $bg-panel-hover;
+    color: $text-primary;
   }
 }
 

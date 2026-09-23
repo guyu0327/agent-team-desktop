@@ -7,6 +7,7 @@ import { useAgentStore } from '@/stores/agent'
 import { deleteConversationTasks, deleteTask, listTaskGroups, runTaskNow, updateConversationTaskStatus, updateTask } from '@/api/tasks'
 import { confirmAction } from '@/composables/confirm'
 import { showToast } from '@/composables/toast'
+import { exportConversation } from '@/utils/chatExport'
 import { t } from '@/i18n'
 import SearchBar from '@/components/common/SearchBar.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -111,11 +112,14 @@ function onConvContextMenu(c: Conversation, e: MouseEvent) {
   convCtx.value = { x: e.clientX, y: e.clientY, conv: c }
 }
 
+/** 右键菜单与页头「⋯」一致：导出 + 批量恢复/暂停 + 删除所有，顺序按 不影响数据→更新→删除 */
 const convCtxItems = computed(() => {
   const conv = convCtx.value?.conv
   const list = conv ? (tasksByConv.value[conv.id] ?? []) : []
   if (list.length === 0) return []
-  const items = []
+  const items: { key: string; label: string; danger?: boolean }[] = [
+    { key: 'export', label: t('chat.exportChat') },
+  ]
   if (list.some((task) => task.status === 'paused')) {
     items.push({ key: 'resume-all', label: t('tasks.resumeAll') })
   }
@@ -130,7 +134,8 @@ function onConvCtxSelect(key: string) {
   const conv = convCtx.value?.conv
   convCtx.value = null
   if (!conv) return
-  if (key === 'pause-all') bulkStatus(conv, 'paused')
+  if (key === 'export') exportConversation(conv, 'task')
+  else if (key === 'pause-all') bulkStatus(conv, 'paused')
   else if (key === 'resume-all') bulkStatus(conv, 'active')
   else if (key === 'delete-all') bulkDelete(conv)
 }
@@ -170,8 +175,9 @@ const taskCtx = ref<{ x: number; y: number; task: ScheduledTask } | null>(null)
 const taskCtxItems = computed(() => {
   const task = taskCtx.value?.task
   if (!task) return []
-  const items = [
+  const items: { key: string; label: string; danger?: boolean }[] = [
     { key: 'run', label: t('tasks.runNow') },
+    { key: 'export', label: t('chat.exportChat') },
     { key: 'edit', label: t('tasks.edit') },
   ]
   if (task.status !== 'done') {
@@ -180,7 +186,7 @@ const taskCtxItems = computed(() => {
       label: task.status === 'paused' ? t('tasks.resume') : t('tasks.pause'),
     })
   }
-  items.push({ key: 'delete', label: t('common.delete') })
+  items.push({ key: 'delete', label: t('common.delete'), danger: true })
   return items
 })
 
@@ -190,6 +196,9 @@ function onTaskCtxSelect(key: string) {
   if (!task) return
   if (key === 'run') {
     runTask(task)
+  } else if (key === 'export') {
+    const conv = conversationStore.findConv(task.conversationId)
+    if (conv) exportConversation(conv, 'task')
   } else if (key === 'edit') {
     formTask.value = task
     showForm.value = true

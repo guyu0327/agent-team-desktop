@@ -33,6 +33,11 @@ export function restoreConversation(id: string): Promise<Conversation> {
   return request(`/conversations/${id}/restore`, { method: 'POST', body: {} })
 }
 
+/** 重置群聊：旧群归档进历史会话，原群名/成员/聊天模式重建新群 */
+export function resetGroupConversation(id: string): Promise<Conversation> {
+  return request(`/conversations/${id}/reset`, { method: 'POST', body: {} })
+}
+
 export function createSingle(agentId: string): Promise<Conversation> {
   return request('/conversations/single', { method: 'POST', body: { agentId } })
 }

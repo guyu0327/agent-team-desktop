@@ -392,6 +392,28 @@ ipcMain.handle('dialog:pick', async (_e, opts) => {
   return r.canceled || r.filePaths.length === 0 ? null : r.filePaths
 })
 
+/**
+ * 文本另存为（聊天记录导出等）：系统保存对话框选择位置后写入；取消返回 { canceled: true }。
+ */
+ipcMain.handle('file:save-text', async (_e, { defaultName, content }) => {
+  try {
+    const [win] = BrowserWindow.getAllWindows()
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: '导出聊天记录',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    })
+    if (canceled || !filePath) return { canceled: true }
+    fs.writeFileSync(filePath, content, 'utf-8')
+    return { ok: true, path: filePath }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
 // ---------- 自绘红绿灯（macOS 侧边栏顶部的窗口控制按钮） ----------
 
 ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize())

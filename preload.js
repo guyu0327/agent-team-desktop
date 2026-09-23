@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('agentTeam', {
   pickFiles: (opts) => ipcRenderer.invoke('dialog:pick', { mode: 'file', ...opts }),
   pickDirectory: (opts) =>
     ipcRenderer.invoke('dialog:pick', { mode: 'dir', ...opts }).then((r) => (r ? r[0] : null)),
+  // 文本另存为：系统保存对话框选择位置后写入（聊天记录导出等）；取消返回 { canceled: true }
+  saveTextFile: (defaultName, content) => ipcRenderer.invoke('file:save-text', { defaultName, content }),
   // 系统设置：开机自启状态读取与切换（getLoginItem 返回当前是否自启）；主题外观切换并持久化
   getLoginItem: () => ipcRenderer.invoke('app:get-login-item'),
   setLoginItem: (open) => ipcRenderer.invoke('app:set-login-item', open),
