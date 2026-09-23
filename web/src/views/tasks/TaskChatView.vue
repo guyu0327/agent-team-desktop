@@ -433,8 +433,8 @@ const moreItems = computed(() => {
       items.push({ key: 'pause', label: task.status === 'paused' ? t('tasks.resume') : t('tasks.pause') })
     }
   }
-  // 批量操作与列表右键一致：有暂停的可全部恢复、有进行中的可全部暂停；协作任务群只有一个任务不展示
-  if (conversation.value?.type !== 'group') {
+  // 批量操作属主体层级：仅在未选中单个任务时出现（与列表右键一致）；协作任务群只有一个任务不展示
+  if (!task && conversation.value?.type !== 'group') {
     if (tasks.value.some((x) => x.status === 'paused'))
       items.push({ key: 'resume-all', label: t('tasks.resumeAll') })
     if (tasks.value.some((x) => x.status === 'active'))
@@ -442,7 +442,7 @@ const moreItems = computed(() => {
   }
   // 底部：删除数据
   if (task) items.push({ key: 'delete', label: t('common.delete'), danger: true })
-  if (conversation.value?.type !== 'group')
+  if (!task && conversation.value?.type !== 'group')
     items.push({ key: 'delete-all', label: t('tasks.deleteAll'), danger: true })
   return items
 })
