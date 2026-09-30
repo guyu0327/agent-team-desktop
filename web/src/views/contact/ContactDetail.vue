@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
+import { useSkillStore } from '@/stores/skill'
 import { confirmAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
 import { t } from '@/i18n'
@@ -14,8 +15,32 @@ const router = useRouter()
 const agentStore = useAgentStore()
 const conversationStore = useConversationStore()
 const presetStore = useModelPresetStore()
+const skillStore = useSkillStore()
 
 const agent = computed(() => agentStore.getById(props.id))
+
+const rootRef = ref<HTMLElement | null>(null)
+const promptRef = ref<HTMLElement | null>(null)
+
+// 列表切换智能体时组件被路由复用（仅参数变化），详情与角色设定内部滚动位置需归零
+watch(
+  () => props.id,
+  () => {
+    rootRef.value?.scrollTo({ top: 0 })
+    promptRef.value?.scrollTo({ top: 0 })
+  },
+)
+
+// 技能详情卡可直接查看/跳转：技能列表按需拉一次（已加载则跳过）
+onMounted(() => {
+  if (skillStore.skills.length === 0) skillStore.loadSkills().catch(() => {})
+})
+
+const agentSkills = computed(() =>
+  (agent.value?.skillIds ?? [])
+    .map((id) => skillStore.findById(id))
+    .filter((s): s is NonNullable<typeof s> => !!s),
+)
 
 const metaRows = computed(() => {
   if (!agent.value) return []
@@ -50,7 +75,7 @@ async function remove() {
 </script>
 
 <template>
-  <div class="contact-detail">
+  <div ref="rootRef" class="contact-detail">
     <template v-if="agent">
       <div class="profile-card">
         <div class="profile-header drag-region">
@@ -71,7 +96,21 @@ async function remove() {
           </div>
           <div class="meta-row column">
             <span class="label">{{ t('contact.promptLabel') }}</span>
-            <p class="prompt">{{ agent.systemPrompt || t('contact.noPrompt') }}</p>
+            <p ref="promptRef" class="prompt">{{ agent.systemPrompt || t('contact.noPrompt') }}</p>
+          </div>
+          <div class="meta-row column">
+            <span class="label">{{ t('contact.skillsLabel') }}</span>
+            <div v-if="agentSkills.length" class="skill-links">
+              <router-link v-for="s in agentSkills" :key="s.skillId" :to="`/skills/${s.skillId}`" class="skill-link-chip">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+                <span class="chip-text">{{ s.name }}</span>
+                <span v-if="s.global" class="chip-global">{{ t('skills.globalChip') }}</span>
+              </router-link>
+            </div>
+            <span v-else class="value muted">{{ t('contact.noSkills') }}</span>
           </div>
         </div>
 
@@ -174,6 +213,10 @@ async function remove() {
     &.warn {
       color: #fa9d3b;
     }
+
+    &.muted {
+      color: $text-tertiary;
+    }
   }
 
   &.column {
@@ -191,6 +234,54 @@ async function remove() {
       // 角色设定可能很长：限高内部滚动，避免撑开整张详情卡
       max-height: 220px;
       overflow-y: auto;
+    }
+
+    .skill-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: $spacing-sm;
+    }
+
+    .skill-link-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px $spacing-sm;
+      border-radius: $radius-sm;
+      border: 1px solid $border-color;
+      background: $bg-input;
+      transition: background $transition-fast, border-color $transition-fast;
+
+      svg {
+        width: 13px;
+        height: 13px;
+        color: $primary-color;
+        flex-shrink: 0;
+      }
+
+      .chip-text {
+        font-size: $font-size-xs;
+        color: $text-primary;
+      }
+
+      .chip-global {
+        font-size: $font-size-xs;
+        line-height: 1;
+        padding: 2px 5px;
+        border-radius: $radius-sm;
+        color: #34d399;
+        border: 1px solid rgba(52, 211, 153, 0.35);
+        background: rgba(52, 211, 153, 0.1);
+      }
+
+      &:hover {
+        background: $bg-hover;
+        border-color: rgba(var(--c-primary-rgb), 0.45);
+
+        .chip-text {
+          color: $primary-color;
+        }
+      }
     }
   }
 }

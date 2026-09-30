@@ -81,7 +81,17 @@ async function loadMore() {
   }
 }
 
-watch(() => props.id, load, { immediate: true })
+const listRef = ref<HTMLElement | null>(null)
+
+// 切换历史会话时组件被路由复用（仅参数变化）：等新消息就绪后在同一帧「换内容 + 滚动归零」，避免闪烁
+watch(
+  () => props.id,
+  async () => {
+    await load()
+    listRef.value?.scrollTo({ top: 0 })
+  },
+  { immediate: true },
+)
 
 function shouldShowDivider(index: number): boolean {
   if (index === 0) return true
@@ -230,7 +240,7 @@ async function onMsgCtxSelect(key: string) {
       </button>
     </header>
 
-    <div class="message-list">
+    <div ref="listRef" class="message-list">
       <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
         {{ loadingMore ? t('history.loading') : t('history.loadMore') }}
       </button>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Conversation } from '@/types'
 import { useHistoryStore } from '@/stores/history'
 import { useAgentStore } from '@/stores/agent'
 import { confirmAction } from '@/composables/confirm'
 import { showToast } from '@/composables/toast'
+import { useOutsideClose } from '@/composables/outsideClose'
 import { formatConversationTime } from '@/utils/time'
 import Avatar from '@/components/common/Avatar.vue'
 import { t } from '@/i18n'
@@ -21,16 +22,8 @@ const rootEl = ref<HTMLElement>()
 
 onMounted(() => {
   void historyStore.loadArchived(props.agentId)
-  setTimeout(() => document.addEventListener('click', onDocClick), 0)
 })
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
-
-function onDocClick(e: MouseEvent) {
-  const target = e.target as Node | null
-  if (!rootEl.value || !target) return
-  if (rootEl.value.contains(target)) return
-  emit('close')
-}
+useOutsideClose(rootEl, () => emit('close'))
 
 const agent = computed(() => agentStore.getById(props.agentId))
 

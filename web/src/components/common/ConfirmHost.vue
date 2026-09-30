@@ -6,6 +6,11 @@ const state = useConfirmState()
 const alert = useAlertState()
 const confirmBtn = ref<HTMLButtonElement>()
 const alertBtn = ref<HTMLButtonElement>()
+// 遮罩关闭判定：按下与松开都发生在遮罩上才关闭，按住从卡片内拖到遮罩松手不关
+const confirmMaskDown = ref(false)
+const confirmMaskUp = ref(false)
+const alertMaskDown = ref(false)
+const alertMaskUp = ref(false)
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape') return
@@ -42,7 +47,13 @@ watch(
 <template>
   <Teleport to="body">
     <transition name="dialog-fade">
-      <div v-if="state.visible" class="dialog-overlay" @click.self="settleConfirm(false)">
+      <div
+        v-if="state.visible"
+        class="dialog-overlay"
+        @pointerdown="confirmMaskDown = $event.target === $event.currentTarget"
+        @pointerup="confirmMaskUp = $event.target === $event.currentTarget"
+        @click.self="confirmMaskDown && confirmMaskUp && settleConfirm(false)"
+      >
         <div class="dialog-card" role="alertdialog" :aria-label="state.title">
           <h3 class="dialog-title">{{ state.title }}</h3>
           <p class="dialog-message">{{ state.message }}</p>
@@ -62,7 +73,13 @@ watch(
     </transition>
 
     <transition name="dialog-fade">
-      <div v-if="alert.visible" class="dialog-overlay" @click.self="settleAlert()">
+      <div
+        v-if="alert.visible"
+        class="dialog-overlay"
+        @pointerdown="alertMaskDown = $event.target === $event.currentTarget"
+        @pointerup="alertMaskUp = $event.target === $event.currentTarget"
+        @click.self="alertMaskDown && alertMaskUp && settleAlert()"
+      >
         <div class="dialog-card" role="alertdialog">
           <p class="dialog-message standalone">{{ alert.message }}</p>
           <div class="dialog-actions">

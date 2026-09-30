@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useOutsideClose } from '@/composables/outsideClose'
 import { useRouter } from 'vue-router'
 import type { Agent, Conversation } from '@/types'
 import { useAgentStore } from '@/stores/agent'
@@ -39,14 +40,7 @@ const kicking = ref(false)
 const editingName = ref(false)
 const nameDraft = ref('')
 
-function onDocClick(e: MouseEvent) {
-  const target = e.target as Node | null
-  if (!rootEl.value || !target) return
-  if (rootEl.value.contains(target)) return
-  emit('close')
-}
-onMounted(() => setTimeout(() => document.addEventListener('click', onDocClick), 0))
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+useOutsideClose(rootEl, () => emit('close'))
 
 function togglePin() {
   conversationStore.togglePinned(props.conversation.id)
@@ -390,7 +384,8 @@ function openAgent(agent: Agent) {
 
 .member-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  // minmax(0,1fr)：1fr 的轨道最小尺寸是 min-content，长名字（nowrap）会把整行撑破菜单宽度
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: $spacing-md;
   padding: $spacing-md;
 }
@@ -505,6 +500,10 @@ function openAgent(agent: Agent) {
     .cand-model {
       font-size: $font-size-xs;
       color: $text-tertiary;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   }
 

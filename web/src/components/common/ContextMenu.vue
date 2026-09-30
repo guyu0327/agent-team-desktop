@@ -23,7 +23,9 @@ onMounted(async () => {
     }
   }
   setTimeout(() => {
-    document.addEventListener('click', onOutside, true)
+    document.addEventListener('pointerdown', onDocPointerDown, true)
+    document.addEventListener('pointerup', onDocPointerUp, true)
+    document.addEventListener('click', onDocClick, true)
     document.addEventListener('contextmenu', onOutside, true)
     document.addEventListener('keydown', onKeydown, true)
     window.addEventListener('scroll', requestClose, true)
@@ -31,11 +33,35 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', onOutside, true)
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
+  document.removeEventListener('pointerup', onDocPointerUp, true)
+  document.removeEventListener('click', onDocClick, true)
   document.removeEventListener('contextmenu', onOutside, true)
   document.removeEventListener('keydown', onKeydown, true)
   window.removeEventListener('scroll', requestClose, true)
 })
+
+function isOutside(e: Event) {
+  const target = e.target as Node | null
+  return !!target && !!rootEl.value && !rootEl.value.contains(target)
+}
+
+// 左键按下与松开都在菜单外才关闭：按住从菜单内拖到外面松手不关
+let downOutside = false
+let upOutside = false
+
+function onDocPointerDown(e: PointerEvent) {
+  downOutside = isOutside(e)
+  upOutside = false
+}
+
+function onDocPointerUp(e: PointerEvent) {
+  upOutside = isOutside(e)
+}
+
+function onDocClick() {
+  if (downOutside && upOutside) emit('close')
+}
 
 function onOutside(e: MouseEvent) {
   const target = e.target as Node | null

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
@@ -14,6 +14,16 @@ const agentStore = useAgentStore()
 const presetStore = useModelPresetStore()
 
 const preset = computed(() => presetStore.findById(props.id))
+
+const rootRef = ref<HTMLElement | null>(null)
+
+// 列表切换预设时组件被路由复用（仅参数变化），详情滚动位置需归零
+watch(
+  () => props.id,
+  () => {
+    rootRef.value?.scrollTo({ top: 0 })
+  },
+)
 
 const PROTOCOL_LABELS = computed<Record<string, string>>(() => ({
   'openai-chat': t('models.protocolChat'),
@@ -61,7 +71,7 @@ async function remove() {
 </script>
 
 <template>
-  <div class="preset-detail">
+  <div ref="rootRef" class="preset-detail">
     <template v-if="preset">
       <div class="profile-card">
         <div class="profile-header drag-region">

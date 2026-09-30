@@ -1,4 +1,4 @@
-import type { Attachment, Conversation, Message, OpRequest } from '@/types'
+import type { Attachment, Conversation, Message, OpRequest, WebActivityItem } from '@/types'
 import { t } from '@/i18n'
 import { API_TOKEN, apiHeaders, apiUrl } from './base'
 import { request } from './http'
@@ -6,6 +6,14 @@ import { request } from './http'
 export interface MessagePage {
   list: Message[]
   hasMore: boolean
+}
+
+/** 联网活动实时事件（web_activity）：phase=start 执行中，phase=end 带结果（搜索站点/页面标题） */
+export interface WebActivityEvent extends WebActivityItem {
+  phase: 'start' | 'end'
+  agentId: string
+  agentName: string
+  conversationId: string
 }
 
 export function listConversations(): Promise<Conversation[]> {
@@ -109,11 +117,15 @@ export interface SendStreamHandlers {
   onReplyStart?(e: { messageId: string; agentId: string; conversationId?: string }): void
   /** 一位成员即将开始回复（模型思考窗口，含接龙/依次回复的间隔期，比 reply_start 早） */
   onReplyPending?(e: { agentId: string; conversationId: string }): void
+  /** 推理模型的思考过程增量：带 messageId 时渲染进气泡，否则在思考条内展示（不落库、不重放） */
+  onThinkingDelta?(e: { agentId: string; conversationId: string; messageId?: string; delta: string }): void
   onDelta?(e: { messageId: string; delta: string; conversationId?: string; replay?: boolean }): void
-  onReplyEnd?(e: { messageId: string; agentId: string; content: string; conversationId?: string }): void
+  onReplyEnd?(e: { messageId: string; agentId: string; content: string; conversationId?: string; webActivity?: WebActivityItem[]; thinking?: string }): void
   onReplyError?(e: { messageId?: string; agentId?: string; error: string; conversationId?: string }): void
   /** 编排协作中后端新建了项目群 */
   onConversationCreated?(conv: Conversation): void
+  /** 编排协作中会话对象有变（如 add_member 中途拉人进群），携带最新会话 */
+  onConversationUpdated?(conv: Conversation): void
   /** 编排者开始/结束协调（会话级状态） */
   onCoordinationStart?(e: { agentId: string; conversationId: string }): void
   onCoordinationEnd?(e: { agentId: string; conversationId: string }): void
@@ -125,6 +137,8 @@ export interface SendStreamHandlers {
   /** 文生图开始/结束（generate_image 执行窗口，按会话展示生成动画） */
   onImageStart?(e: { agentId: string; agentName: string; conversationId: string }): void
   onImageEnd?(e: { conversationId: string }): void
+  /** 联网活动（web_search / fetch_webpage 执行上报：搜索词、来源站点、抓取 URL 与结果） */
+  onWebActivity?(e: WebActivityEvent): void
   /** 系统标注消息（微信通道切换处理智能体等），渲染为居中分隔条 */
   onSystemNote?(msg: Message): void
   onDone?(): void
@@ -206,6 +220,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
     case 'reply_pending':
       handlers.onReplyPending?.(payload)
       break
+    case 'thinking_delta':
+      handlers.onThinkingDelta?.(payload)
+      break
     case 'delta':
       handlers.onDelta?.(payload)
       break
@@ -217,6 +234,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
       break
     case 'conversation_created':
       handlers.onConversationCreated?.(payload as Conversation)
+      break
+    case 'conversation_updated':
+      handlers.onConversationUpdated?.(payload as Conversation)
       break
     case 'coordination_start':
       handlers.onCoordinationStart?.(payload)
@@ -239,6 +259,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
     case 'image_end':
       handlers.onImageEnd?.(payload)
       break
+    case 'web_activity':
+      handlers.onWebActivity?.(payload as WebActivityEvent)
+      break
     case 'system_note':
       handlers.onSystemNote?.(payload as Message)
       break
@@ -249,10 +272,10 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
 }
 
 const STREAM_EVENTS = [
-  'user_message', 'reply_start', 'reply_pending', 'delta', 'reply_end', 'reply_error',
-  'conversation_created', 'coordination_start', 'coordination_end',
+  'user_message', 'reply_start', 'reply_pending', 'thinking_delta', 'delta', 'reply_end', 'reply_error',
+  'conversation_created', 'conversation_updated', 'coordination_start', 'coordination_end',
   'discussion_start', 'discussion_end', 'op_request', 'image_start', 'image_end',
-  'system_note', 'done',
+  'web_activity', 'system_note', 'done',
 ] as const
 
 /**

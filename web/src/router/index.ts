@@ -91,6 +91,34 @@ const router = createRouter({
           ],
         },
         {
+          path: 'skills',
+          component: () => import('@/views/skills/SkillsView.vue'),
+          children: [
+            {
+              path: '',
+              name: 'SkillsEmpty',
+              component: () => import('@/views/skills/SkillsPlaceholder.vue'),
+            },
+            {
+              path: 'add',
+              name: 'SkillAdd',
+              component: () => import('@/views/skills/SkillForm.vue'),
+            },
+            {
+              path: ':id',
+              name: 'SkillDetail',
+              component: () => import('@/views/skills/SkillDetail.vue'),
+              props: true,
+            },
+            {
+              path: ':id/edit',
+              name: 'SkillEdit',
+              component: () => import('@/views/skills/SkillForm.vue'),
+              props: true,
+            },
+          ],
+        },
+        {
           path: 'models',
           component: () => import('@/views/contact/ModelsView.vue'),
           children: [

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { Message } from '@/types'
+import { computed, nextTick, ref, watch } from 'vue'
+import type { Message, WebActivityItem } from '@/types'
 import Avatar from '@/components/common/Avatar.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { fsContentUrl } from '@/utils/image'
@@ -16,6 +16,8 @@ const props = defineProps<{
   /** 发送者标识徽标，如编排者的「编排者」 */
   badge?: string
   typing?: boolean
+  /** 进行中的思考过程流文本（thinking_delta，正文首增量到达即清空），气泡内限高滚动展示 */
+  thinking?: string
   /** 是否在气泡上方显示发送者名称（群聊场景） */
   showName?: boolean
   /** 头像可交互（群聊中点他人头像 @ 对方） */
@@ -42,6 +44,55 @@ async function openAttachment(path: string) {
   const err = await openLocalPath(path)
   if (err) showToast(err)
 }
+
+const waOpen = ref(false)
+const tlOpen = ref(false)
+const webItems = computed<WebActivityItem[]>(() => props.message.webActivity ?? [])
+
+/** 思考过程框贴底滚动：增量到达即跟到最新一行 */
+const thinkingEl = ref<HTMLElement | null>(null)
+watch(
+  () => props.thinking,
+  () => {
+    nextTick(() => {
+      const el = thinkingEl.value
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  },
+)
+
+const webSummary = computed(() => {
+  const search = webItems.value.filter((i) => i.tool === 'web_search').length
+  const fetch = webItems.value.filter((i) => i.tool === 'fetch_webpage').length
+  const parts: string[] = []
+  if (search) parts.push(t('chat.webSearchCount', { n: search }))
+  if (fetch) parts.push(t('chat.webFetchCount', { n: fetch }))
+  if (!parts.length) return t('chat.webActivity')
+  return `${t('chat.webActivity')} · ${parts.join(t('chat.webActivityJoin'))}`
+})
+
+function webHost(url?: string) {
+  if (!url) return ''
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** 展开态单条记录的描述：搜索=关键词+来源站点，抓取=URL+页面标题 */
+function webItemText(item: WebActivityItem) {
+  if (item.tool === 'web_search') {
+    const base = `${t('chat.webActivitySearch')}${item.query ?? ''}`
+    return item.sites?.length ? `${base} · ${item.sites.join(' / ')}` : base
+  }
+  return `${webHost(item.url)}${item.title ? ` — ${item.title}` : ''}`
+}
+
+function webItemFail(item: WebActivityItem) {
+  return item.ok === false ? item.error || t('chat.webActivityFail') : ''
+}
+
 </script>
 
 <template>
@@ -58,6 +109,18 @@ async function openAttachment(path: string) {
       <div class="bubble-info">
         <span v-if="showName && senderName" class="sender-name">{{ senderName }}</span>
         <span v-if="badge" class="badge">{{ badge }}</span>
+      </div>
+      <div v-if="message.thinking" class="thinking-log">
+        <button class="tl-toggle" type="button" @click="tlOpen = !tlOpen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 3.7 10.7c-.7.5-.7 1.4-.7 2.3h-6c0-.9 0-1.8-.7-2.3A6 6 0 0 1 12 3z" />
+          </svg>
+          <span class="tl-label">{{ t('chat.thinkingProcess') }}</span>
+          <svg class="tl-caret" :class="{ open: tlOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <pre v-if="tlOpen" class="tl-text">{{ message.thinking }}</pre>
       </div>
       <div
         class="bubble"
@@ -85,12 +148,35 @@ async function openAttachment(path: string) {
             </span>
           </template>
         </div>
+        <div v-if="thinking" ref="thinkingEl" class="thinking-stream">{{ thinking }}</div>
         <div v-if="typing && !message.content" class="typing">
           <span></span><span></span><span></span>
         </div>
         <span v-else-if="self || message.type === 'error'" class="plain">{{ message.content }}</span>
         <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else class="md" v-html="rendered"></div>
+      </div>
+      <div v-if="webItems.length" class="web-activity">
+        <button class="wa-toggle" type="button" @click="waOpen = !waOpen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18M12 3c2.5 2.6 3.9 5.7 3.9 9s-1.4 6.4-3.9 9c-2.5-2.6-3.9-5.7-3.9-9S9.5 5.6 12 3z" />
+          </svg>
+          <span class="wa-summary">{{ webSummary }}</span>
+          <svg class="wa-caret" :class="{ open: waOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <ul v-if="waOpen" class="wa-list">
+          <li v-for="(item, idx) in webItems" :key="idx" :class="{ fail: item.ok === false }">
+            <span class="wa-kind">{{ item.tool === 'web_search' ? t('chat.webActivitySearch') : t('chat.webActivityFetch') }}</span>
+            <span class="wa-text">
+              <a v-if="item.tool === 'fetch_webpage' && item.url" :href="item.url" target="_blank" rel="noopener">{{ webItemText(item) }}</a>
+              <template v-else>{{ webItemText(item) }}</template>
+            </span>
+            <span v-if="webItemFail(item)" class="wa-err">{{ webItemFail(item) }}</span>
+          </li>
+        </ul>
       </div>
     </div>
   </div>
@@ -140,6 +226,153 @@ async function openAttachment(path: string) {
 
 .self .bubble-col .badge {
   align-self: flex-end;
+}
+
+.thinking-log {
+  .tl-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: $radius-sm;
+    background: rgba(0, 0, 0, 0.22);
+    color: $text-tertiary;
+    font-size: $font-size-xs;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background $transition-fast, color $transition-fast;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.35);
+      color: $text-secondary;
+    }
+
+    svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+
+    .tl-label {
+      white-space: nowrap;
+    }
+
+    .tl-caret {
+      transition: transform $transition-fast;
+
+      &.open {
+        transform: rotate(180deg);
+      }
+    }
+  }
+
+  .tl-text {
+    margin: 4px 0 0;
+    padding: 6px 10px;
+    max-height: 220px;
+    overflow-y: auto;
+    max-width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: $radius-sm;
+    background: rgba(0, 0, 0, 0.22);
+    font-family: inherit;
+    font-size: $font-size-xs;
+    line-height: 1.6;
+    color: $text-secondary;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.web-activity {
+  .wa-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: $radius-sm;
+    background: rgba(0, 0, 0, 0.22);
+    color: $text-tertiary;
+    font-size: $font-size-xs;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background $transition-fast, color $transition-fast;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.35);
+      color: $text-secondary;
+    }
+
+    svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+
+    .wa-summary {
+      white-space: nowrap;
+    }
+
+    .wa-caret {
+      transition: transform $transition-fast;
+
+      &.open {
+        transform: rotate(180deg);
+      }
+    }
+  }
+
+  .wa-list {
+    margin: 4px 0 0;
+    padding: 6px 10px;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: $radius-sm;
+    background: rgba(0, 0, 0, 0.22);
+
+    li {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-size: $font-size-xs;
+      line-height: 1.5;
+      color: $text-secondary;
+      min-width: 0;
+
+      &.fail {
+        color: #ff9c9c;
+      }
+
+      .wa-kind {
+        flex-shrink: 0;
+        color: $text-tertiary;
+      }
+
+      .wa-text {
+        min-width: 0;
+        word-break: break-all;
+
+        a {
+          color: $primary-color;
+
+          &:hover {
+            text-decoration: underline;
+          }
+        }
+      }
+
+      .wa-err {
+        flex-shrink: 0;
+        color: #ff9c9c;
+      }
+    }
+  }
 }
 
 .bubble-info {
@@ -374,6 +607,19 @@ async function openAttachment(path: string) {
       border-radius: $radius-sm;
     }
   }
+}
+
+.thinking-stream {
+  max-height: 140px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: $font-size-sm;
+  line-height: 1.55;
+  color: $text-tertiary;
+  padding: 2px 0 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.14);
 }
 
 .typing {

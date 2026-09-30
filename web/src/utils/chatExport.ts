@@ -76,6 +76,11 @@ function buildMarkdown(
       out.push(`> ${t('export.errorNote')}${body || ''}`)
     } else {
       out.push(body || '……')
+      const thinking = m.thinking?.trim()
+      if (thinking) {
+        out.push('', `> ${t('export.thinkingNote')}`)
+        out.push(...thinking.split('\n').map((l) => `> ${l}`.trimEnd()))
+      }
       for (const att of m.attachments ?? []) {
         out.push(`> ${t('export.attachmentNote', { name: att.name, path: att.path })}`)
       }

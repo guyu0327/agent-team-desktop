@@ -4,8 +4,10 @@ import { t } from '@/i18n'
 
 <template>
   <div class="chat-placeholder drag-region">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+      <path
+        d="M12 3C6.48 3 2 6.94 2 11.75c0 2.66 1.4 5.04 3.62 6.65-.12.83-.5 2.1-1.12 3.1 0 0 2.3-.2 4.12-1.4.74.16 1.52.25 2.33.25h.05c5.52 0 10-3.94 10-8.75S17.52 3 12 3z"
+      />
     </svg>
     <p>{{ t('message.pickToChat') }}</p>
   </div>

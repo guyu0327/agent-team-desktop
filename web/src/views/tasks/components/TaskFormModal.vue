@@ -16,6 +16,10 @@ const emit = defineEmits<{
 
 const agentStore = useAgentStore()
 
+// 遮罩关闭判定：按下与松开都发生在遮罩上才关闭，按住从卡片内拖到遮罩松手不关
+const maskDown = ref(false)
+const maskUp = ref(false)
+
 const editing = computed(() => !!props.task)
 
 const agentId = ref(props.task?.agentId ?? props.fixedAgentId ?? agentStore.agents[0]?.id ?? '')
@@ -159,7 +163,12 @@ async function save() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div
+    class="modal-overlay"
+    @pointerdown="maskDown = $event.target === $event.currentTarget"
+    @pointerup="maskUp = $event.target === $event.currentTarget"
+    @click.self="maskDown && maskUp && emit('close')"
+  >
     <div class="modal-card">
       <h2 class="modal-title">{{ editing ? t('tasks.edit') : t('tasks.new') }}</h2>
 

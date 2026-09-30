@@ -30,6 +30,9 @@ function onGroupCreated(conversationId: string) {
 // 会话右键菜单
 const convCtx = ref<{ x: number; y: number; conv: Conversation } | null>(null)
 const renameTarget = ref<Conversation | null>(null)
+// 遮罩关闭判定：按下与松开都发生在遮罩上才关闭，按住从卡片内拖到遮罩松手不关
+const maskDown = ref(false)
+const maskUp = ref(false)
 const renameDraft = ref('')
 
 /** 右键菜单与聊天页「⋯」一致：导出 + 置顶/已读/重命名/新会话 + 删除，顺序按 不影响数据→更新→删除 */
@@ -183,7 +186,13 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
       <router-view />
     </section>
 
-    <div v-if="renameTarget" class="rename-mask" @click.self="renameTarget = null">
+    <div
+      v-if="renameTarget"
+      class="rename-mask"
+      @pointerdown="maskDown = $event.target === $event.currentTarget"
+      @pointerup="maskUp = $event.target === $event.currentTarget"
+      @click.self="maskDown && maskUp && (renameTarget = null)"
+    >
       <div class="rename-card">
         <h3 class="rename-title">{{ t('message.renameTitle') }}</h3>
         <input

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import type { FileGrant } from '@/types'
 import { listFileGrants, revokeFile } from '@/api/fs'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { openLocalPath } from '@/api/desktop'
 import { showToast } from '@/composables/toast'
+import { useOutsideClose } from '@/composables/outsideClose'
 import { t } from '@/i18n'
 
 const props = defineProps<{ conversationId: string }>()
@@ -20,16 +21,8 @@ async function open(grant: FileGrant) {
 
 onMounted(() => {
   loadGrants()
-  setTimeout(() => document.addEventListener('click', onDocClick), 0)
 })
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
-
-function onDocClick(e: MouseEvent) {
-  const target = e.target as Node | null
-  if (!rootEl.value || !target) return
-  if (rootEl.value.contains(target)) return
-  emit('close')
-}
+useOutsideClose(rootEl, () => emit('close'))
 
 async function loadGrants() {
   try {

@@ -9,6 +9,10 @@ import { t } from '@/i18n'
 
 const emit = defineEmits<{ close: [] }>()
 
+// 遮罩关闭判定：按下与松开都发生在遮罩上才关闭，按住从卡片内拖到遮罩松手不关
+const maskDown = ref(false)
+const maskUp = ref(false)
+
 const PAGE_SIZE = 50
 
 const LOG_TYPES = computed<{ value: string; label: string }[]>(() => [
@@ -104,7 +108,12 @@ onMounted(() => void load(true))
 </script>
 
 <template>
-  <div class="logs-mask" @click.self="emit('close')">
+  <div
+    class="logs-mask"
+    @pointerdown="maskDown = $event.target === $event.currentTarget"
+    @pointerup="maskUp = $event.target === $event.currentTarget"
+    @click.self="maskDown && maskUp && emit('close')"
+  >
     <div class="logs-card">
       <div class="head">
         <h3 class="title">{{ t('logs.title') }}</h3>

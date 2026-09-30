@@ -4,7 +4,8 @@ import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
 import { getCoordinationLimits, updateCoordinationLimits } from '@/api/settings'
 import { getContextCompression, updateContextCompression } from '@/api/settings'
 import { getAsrStreamSettings, updateAsrStreamSettings } from '@/api/asr'
-import type { AsrStreamStatus } from '@/types'
+import { clearAnySearchSettings, getAnySearchSettings, updateAnySearchSettings } from '@/api/anysearch'
+import type { AnySearchStatus, AsrStreamStatus } from '@/types'
 import { desktop, openLocalPath } from '@/api/desktop'
 import { confirmAction } from '@/composables/confirm'
 import { showToast } from '@/composables/toast'
@@ -22,6 +23,10 @@ import ChangelogModal from './ChangelogModal.vue'
 import LogsModal from './LogsModal.vue'
 
 const emit = defineEmits<{ close: [] }>()
+
+// 遮罩关闭判定：按下与松开都发生在遮罩上才关闭，按住从卡片内拖到遮罩松手不关
+const maskDown = ref(false)
+const maskUp = ref(false)
 
 const root = ref('')
 const extraDirs = ref<string[]>([])
@@ -55,6 +60,13 @@ const asrDirty = computed(
     streamApiKey.value !== '' ||
     streamApiSecret.value !== '',
 )
+
+const webApiKey = ref('')
+const webStatus = ref<AnySearchStatus | null>(null)
+const webSaving = ref(false)
+const webFeedback = ref<{ ok: boolean; text: string } | null>(null)
+
+const webDirty = computed(() => webApiKey.value !== '')
 
 const backupBusy = ref(false)
 const restoreBusy = ref(false)
@@ -156,6 +168,13 @@ function selectLang(l: AppLang) {
 const showChangelog = ref(false)
 const showLogs = ref(false)
 
+// 可折叠分区（系统设置/数据管理/关于常显），默认全部收起
+// 可折叠分区（手风琴：同时只展开一个；数据管理/关于常显），默认展开系统设置
+const openSection = ref('system')
+const toggleSection = (k: string) => {
+  openSection.value = openSection.value === k ? '' : k
+}
+
 function openExternal(url: string) {
   window.open(url, '_blank', 'noopener')
 }
@@ -208,6 +227,11 @@ onMounted(async () => {
     savedStreamAppId.value = s.appId
   } catch (e) {
     streamFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.asrLoadFailed') }
+  }
+  try {
+    webStatus.value = await getAnySearchSettings()
+  } catch (e) {
+    webFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.webSearchLoadFailed') }
   }
   try {
     const l = await getCoordinationLimits()
@@ -336,6 +360,50 @@ function resetAsrStream() {
   streamApiSecret.value = ''
 }
 
+async function saveWebSearch() {
+  if (webSaving.value) return
+  webSaving.value = true
+  webFeedback.value = null
+  try {
+    const s = await updateAnySearchSettings({ apiKey: webApiKey.value.trim() })
+    webStatus.value = s
+    webApiKey.value = ''
+    webFeedback.value = { ok: true, text: t('settings.webSearchSaved') }
+  } catch (e) {
+    webFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.saveFailed') }
+  } finally {
+    webSaving.value = false
+  }
+}
+
+function resetWebSearch() {
+  webApiKey.value = ''
+}
+
+/** 清除 Key 恢复匿名免费档（Key 不回显，「留空保存」只表示不变，清除需显式确认） */
+async function clearWebSearch() {
+  if (webSaving.value) return
+  const ok = await confirmAction({
+    title: t('settings.webSearchClearTitle'),
+    message: t('settings.webSearchClearMsg'),
+    confirmText: t('settings.webSearchClear'),
+    danger: true,
+  })
+  if (!ok) return
+  webSaving.value = true
+  webFeedback.value = null
+  try {
+    const s = await clearAnySearchSettings()
+    webStatus.value = s
+    webApiKey.value = ''
+    webFeedback.value = { ok: true, text: t('settings.webSearchCleared') }
+  } catch (e) {
+    webFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.saveFailed') }
+  } finally {
+    webSaving.value = false
+  }
+}
+
 /** 开机自启：点按即生效，以主进程回读的实际状态为准 */
 async function toggleLaunchAtLogin() {
   if (launchBusy.value || !desktop.getLoginItem || !desktop.setLoginItem) return
@@ -351,171 +419,244 @@ async function toggleLaunchAtLogin() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div
+    class="modal-overlay"
+    @pointerdown="maskDown = $event.target === $event.currentTarget"
+    @pointerup="maskUp = $event.target === $event.currentTarget"
+    @click.self="maskDown && maskUp && emit('close')"
+  >
     <div class="settings-card">
       <h2 class="title">{{ t('settings.title') }}</h2>
 
       <section class="section">
-        <h3 class="section-title">{{ t('settings.system') }}</h3>
-        <button v-if="desktop?.getLoginItem" class="setting-row" :disabled="launchBusy" @click="toggleLaunchAtLogin">
-          <span class="row-info">
-            <span class="row-name">{{ t('settings.launchAtLogin') }}</span>
-            <span class="row-desc">{{ t('settings.launchDesc') }}</span>
-          </span>
-          <span class="switch" :class="{ on: launchAtLogin }"><span class="knob"></span></span>
-        </button>
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'system' }" @click="toggleSection('system')">
+          {{ t('settings.system') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'system'" class="section-body">
+          <button v-if="desktop?.getLoginItem" class="setting-row" :disabled="launchBusy" @click="toggleLaunchAtLogin">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.launchAtLogin') }}</span>
+              <span class="row-desc">{{ t('settings.launchDesc') }}</span>
+            </span>
+            <span class="switch" :class="{ on: launchAtLogin }"><span class="knob"></span></span>
+          </button>
 
-        <div class="setting-row">
-          <span class="row-info">
-            <span class="row-name">{{ t('settings.theme') }}</span>
-            <span class="row-desc">{{ t('settings.themeDesc') }}</span>
-          </span>
-          <div class="seg">
-            <button class="seg-btn" :class="{ on: theme === 'dark' }" @click="selectTheme('dark')">{{ t('settings.dark') }}</button>
-            <button class="seg-btn" :class="{ on: theme === 'light' }" @click="selectTheme('light')">{{ t('settings.light') }}</button>
-          </div>
-        </div>
-
-        <div class="setting-row">
-          <span class="row-info">
-            <span class="row-name">{{ t('settings.lang') }}</span>
-            <span class="row-desc">{{ t('settings.langDesc') }}</span>
-          </span>
-          <div class="seg">
-            <button class="seg-btn" :class="{ on: lang === 'zh' }" @click="selectLang('zh')">中文</button>
-            <button class="seg-btn" :class="{ on: lang === 'en' }" @click="selectLang('en')">English</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3 class="section-title">{{ t('settings.sandbox') }}</h3>
-        <p class="hint">{{ t('settings.sandboxHint') }}</p>
-
-        <div class="field">
-          <label class="label">{{ t('settings.rootLabel') }}</label>
-          <div class="input-row">
-            <input v-model="root" class="input" type="text" spellcheck="false" :placeholder="t('settings.rootPlaceholder')" />
-            <button class="browse-btn" :disabled="!root.trim()" @click="openDir(root.trim())">{{ t('common.open') }}</button>
-            <button class="browse-btn" @click="browseRoot">{{ t('settings.modify') }}</button>
-          </div>
-        </div>
-
-        <div class="field">
-          <label class="label">{{ t('settings.whitelist') }}</label>
-          <div class="dir-list">
-            <div v-for="d in extraDirs" :key="d" class="dir-row">
-              <svg class="dir-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              </svg>
-              <span class="dir-path" :title="d">{{ d }}</span>
-              <button class="row-btn" @click="openDir(d)">{{ t('common.open') }}</button>
-              <button class="row-btn danger" @click="removeExtraDir(d)">{{ t('common.remove') }}</button>
+          <div class="setting-row">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.theme') }}</span>
+              <span class="row-desc">{{ t('settings.themeDesc') }}</span>
+            </span>
+            <div class="seg">
+              <button class="seg-btn" :class="{ on: theme === 'dark' }" @click="selectTheme('dark')">{{ t('settings.dark') }}</button>
+              <button class="seg-btn" :class="{ on: theme === 'light' }" @click="selectTheme('light')">{{ t('settings.light') }}</button>
             </div>
-            <div v-if="extraDirs.length === 0" class="dir-empty">{{ t('settings.whitelistEmpty') }}</div>
           </div>
-          <button class="browse-btn add-dir" @click="addExtraDir">{{ t('settings.addWhitelist') }}</button>
-        </div>
 
-        <p v-if="feedback" class="feedback" :class="feedback.ok ? 'ok' : 'err'">{{ feedback.text }}</p>
-
-        <div v-if="sandboxDirty" class="actions">
-          <button class="reset-btn" :disabled="resetting || saving" @click="reset">{{ t('settings.reset') }}</button>
-          <button class="save-btn" :disabled="saving" @click="save">{{ saving ? t('settings.saving') : t('common.save') }}</button>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3 class="section-title">{{ t('settings.asr') }}</h3>
-        <p class="hint">{{ t('settings.asrHint') }}</p>
-
-        <div class="field">
-          <label class="label">{{ t('settings.asrAppId') }}</label>
-          <input v-model="streamAppId" class="input" type="text" spellcheck="false" :placeholder="t('settings.asrAppIdPlaceholder')" />
-        </div>
-
-        <div class="field">
-          <label class="label">{{ t('settings.asrKey') }}</label>
-          <input
-            v-model="streamApiKey"
-            class="input"
-            type="password"
-            spellcheck="false"
-            :placeholder="streamStatus?.hasKey ? t('settings.asrKeySaved') : t('settings.asrKeyPlaceholder')"
-          />
-        </div>
-
-        <div class="field">
-          <label class="label">{{ t('settings.asrSecret') }}</label>
-          <input
-            v-model="streamApiSecret"
-            class="input"
-            type="password"
-            spellcheck="false"
-            :placeholder="streamStatus?.hasSecret ? t('settings.asrKeySaved') : t('settings.asrSecretPlaceholder')"
-          />
-        </div>
-
-        <p v-if="streamFeedback" class="feedback" :class="streamFeedback.ok ? 'ok' : 'err'">{{ streamFeedback.text }}</p>
-
-        <div v-if="asrDirty" class="actions">
-          <button class="reset-btn" @click="resetAsrStream">{{ t('settings.reset') }}</button>
-          <button class="save-btn" :disabled="streamSaving" @click="saveAsrStream">{{ streamSaving ? t('settings.saving') : t('common.save') }}</button>
+          <div class="setting-row">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.lang') }}</span>
+              <span class="row-desc">{{ t('settings.langDesc') }}</span>
+            </span>
+            <div class="seg">
+              <button class="seg-btn" :class="{ on: lang === 'zh' }" @click="selectLang('zh')">中文</button>
+              <button class="seg-btn" :class="{ on: lang === 'en' }" @click="selectLang('en')">English</button>
+            </div>
+          </div>
         </div>
       </section>
 
       <section class="section">
-        <h3 class="section-title">{{ t('settings.limits') }}</h3>
-        <p class="hint">{{ t('settings.limitsHint') }}</p>
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'sandbox' }" @click="toggleSection('sandbox')">
+          {{ t('settings.sandbox') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'sandbox'" class="section-body">
+          <p class="hint">{{ t('settings.sandboxHint') }}</p>
 
-        <div class="field">
-          <label class="label">{{ t('settings.limitsOverall') }}</label>
-          <input v-model.number="overallMin" class="input" type="number" min="1" max="1440" :placeholder="t('settings.limitsOverallPlaceholder')" />
-        </div>
+          <div class="field">
+            <label class="label">{{ t('settings.rootLabel') }}</label>
+            <div class="input-row">
+              <input v-model="root" class="input" type="text" spellcheck="false" :placeholder="t('settings.rootPlaceholder')" />
+              <button class="browse-btn" :disabled="!root.trim()" @click="openDir(root.trim())">{{ t('common.open') }}</button>
+              <button class="browse-btn" @click="browseRoot">{{ t('settings.modify') }}</button>
+            </div>
+          </div>
 
-        <div class="field">
-          <label class="label">{{ t('settings.limitsMember') }}</label>
-          <input v-model.number="memberMin" class="input" type="number" min="1" max="120" :placeholder="t('settings.limitsMemberPlaceholder')" />
-        </div>
+          <div class="field">
+            <label class="label">{{ t('settings.whitelist') }}</label>
+            <div class="dir-list">
+              <div v-for="d in extraDirs" :key="d" class="dir-row">
+                <svg class="dir-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                </svg>
+                <span class="dir-path" :title="d">{{ d }}</span>
+                <button class="row-btn" @click="openDir(d)">{{ t('common.open') }}</button>
+                <button class="row-btn danger" @click="removeExtraDir(d)">{{ t('common.remove') }}</button>
+              </div>
+              <div v-if="extraDirs.length === 0" class="dir-empty">{{ t('settings.whitelistEmpty') }}</div>
+            </div>
+            <button class="browse-btn add-dir" @click="addExtraDir">{{ t('settings.addWhitelist') }}</button>
+          </div>
 
-        <p v-if="limitsFeedback" class="feedback" :class="limitsFeedback.ok ? 'ok' : 'err'">{{ limitsFeedback.text }}</p>
+          <p v-if="feedback" class="feedback" :class="feedback.ok ? 'ok' : 'err'">{{ feedback.text }}</p>
 
-        <div v-if="limitsDirty" class="actions">
-          <button class="reset-btn" :disabled="limitsSaving" @click="resetLimits">{{ t('settings.reset') }}</button>
-          <button class="save-btn" :disabled="limitsSaving" @click="saveLimits">{{ limitsSaving ? t('settings.saving') : t('common.save') }}</button>
+          <div v-if="sandboxDirty" class="actions">
+            <button class="reset-btn" :disabled="resetting || saving" @click="reset">{{ t('settings.reset') }}</button>
+            <button class="save-btn" :disabled="saving" @click="save">{{ saving ? t('settings.saving') : t('common.save') }}</button>
+          </div>
         </div>
       </section>
 
       <section class="section">
-        <h3 class="section-title">{{ t('settings.compression') }}</h3>
-        <p class="hint">{{ t('settings.compressionHint') }}</p>
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'asr' }" @click="toggleSection('asr')">
+          {{ t('settings.asr') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'asr'" class="section-body">
+          <p class="hint">{{ t('settings.asrHint') }}</p>
 
-        <button class="setting-row" @click="compressionEnabled = !compressionEnabled">
-          <span class="row-info">
-            <span class="row-name">{{ t('settings.compressionEnabled') }}</span>
-            <span class="row-desc">{{ t('settings.compressionEnabledDesc') }}</span>
-          </span>
-          <span class="switch" :class="{ on: compressionEnabled }"><span class="knob"></span></span>
-        </button>
+          <div class="field">
+            <label class="label">{{ t('settings.asrAppId') }}</label>
+            <input v-model="streamAppId" class="input" type="text" spellcheck="false" :placeholder="t('settings.asrAppIdPlaceholder')" />
+          </div>
 
-        <div class="field">
-          <label class="label">{{ t('settings.compressionBudget') }}</label>
-          <input
-            v-model.number="compressionBudget"
-            class="input"
-            type="number"
-            min="5000"
-            max="500000"
-            :disabled="!compressionEnabled"
-            :placeholder="t('settings.compressionBudgetPlaceholder')"
-          />
+          <div class="field">
+            <label class="label">{{ t('settings.asrKey') }}</label>
+            <input
+              v-model="streamApiKey"
+              class="input"
+              type="password"
+              spellcheck="false"
+              :placeholder="streamStatus?.hasKey ? t('settings.asrKeySaved') : t('settings.asrKeyPlaceholder')"
+            />
+          </div>
+
+          <div class="field">
+            <label class="label">{{ t('settings.asrSecret') }}</label>
+            <input
+              v-model="streamApiSecret"
+              class="input"
+              type="password"
+              spellcheck="false"
+              :placeholder="streamStatus?.hasSecret ? t('settings.asrKeySaved') : t('settings.asrSecretPlaceholder')"
+            />
+          </div>
+
+          <p v-if="streamFeedback" class="feedback" :class="streamFeedback.ok ? 'ok' : 'err'">{{ streamFeedback.text }}</p>
+
+          <div v-if="asrDirty" class="actions">
+            <button class="reset-btn" @click="resetAsrStream">{{ t('settings.reset') }}</button>
+            <button class="save-btn" :disabled="streamSaving" @click="saveAsrStream">{{ streamSaving ? t('settings.saving') : t('common.save') }}</button>
+          </div>
         </div>
+      </section>
 
-        <p v-if="compressionFeedback" class="feedback" :class="compressionFeedback.ok ? 'ok' : 'err'">{{ compressionFeedback.text }}</p>
+      <section class="section">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'web' }" @click="toggleSection('web')">
+          {{ t('settings.webSearch') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'web'" class="section-body">
+          <p class="hint">{{ t('settings.webSearchHint') }}</p>
 
-        <div v-if="compressionDirty" class="actions">
-          <button class="reset-btn" :disabled="compressionSaving" @click="resetCompression">{{ t('settings.reset') }}</button>
-          <button class="save-btn" :disabled="compressionSaving" @click="saveCompression">{{ compressionSaving ? t('settings.saving') : t('common.save') }}</button>
+          <div class="field">
+            <label class="label">{{ t('settings.webSearchKey') }}</label>
+            <input
+              v-model="webApiKey"
+              class="input"
+              type="password"
+              spellcheck="false"
+              :placeholder="webStatus?.hasKey ? t('settings.webSearchKeySaved') : t('settings.webSearchKeyPlaceholder')"
+            />
+          </div>
+
+          <p v-if="webFeedback" class="feedback" :class="webFeedback.ok ? 'ok' : 'err'">{{ webFeedback.text }}</p>
+
+          <div v-if="webDirty" class="actions">
+            <button class="reset-btn" @click="resetWebSearch">{{ t('settings.reset') }}</button>
+            <button class="save-btn" :disabled="webSaving" @click="saveWebSearch">{{ webSaving ? t('settings.saving') : t('common.save') }}</button>
+          </div>
+          <div v-else-if="webStatus?.hasKey" class="actions">
+            <button class="reset-btn danger" :disabled="webSaving" @click="clearWebSearch">{{ t('settings.webSearchClear') }}</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'limits' }" @click="toggleSection('limits')">
+          {{ t('settings.limits') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'limits'" class="section-body">
+          <p class="hint">{{ t('settings.limitsHint') }}</p>
+
+          <div class="field">
+            <label class="label">{{ t('settings.limitsOverall') }}</label>
+            <input v-model.number="overallMin" class="input" type="number" min="1" max="1440" :placeholder="t('settings.limitsOverallPlaceholder')" />
+          </div>
+
+          <div class="field">
+            <label class="label">{{ t('settings.limitsMember') }}</label>
+            <input v-model.number="memberMin" class="input" type="number" min="1" max="120" :placeholder="t('settings.limitsMemberPlaceholder')" />
+          </div>
+
+          <p v-if="limitsFeedback" class="feedback" :class="limitsFeedback.ok ? 'ok' : 'err'">{{ limitsFeedback.text }}</p>
+
+          <div v-if="limitsDirty" class="actions">
+            <button class="reset-btn" :disabled="limitsSaving" @click="resetLimits">{{ t('settings.reset') }}</button>
+            <button class="save-btn" :disabled="limitsSaving" @click="saveLimits">{{ limitsSaving ? t('settings.saving') : t('common.save') }}</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'compression' }" @click="toggleSection('compression')">
+          {{ t('settings.compression') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'compression'" class="section-body">
+          <p class="hint">{{ t('settings.compressionHint') }}</p>
+
+          <button class="setting-row" @click="compressionEnabled = !compressionEnabled">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.compressionEnabled') }}</span>
+              <span class="row-desc">{{ t('settings.compressionEnabledDesc') }}</span>
+            </span>
+            <span class="switch" :class="{ on: compressionEnabled }"><span class="knob"></span></span>
+          </button>
+
+          <div class="field">
+            <label class="label">{{ t('settings.compressionBudget') }}</label>
+            <input
+              v-model.number="compressionBudget"
+              class="input"
+              type="number"
+              min="5000"
+              max="500000"
+              :disabled="!compressionEnabled"
+              :placeholder="t('settings.compressionBudgetPlaceholder')"
+            />
+          </div>
+
+          <p v-if="compressionFeedback" class="feedback" :class="compressionFeedback.ok ? 'ok' : 'err'">{{ compressionFeedback.text }}</p>
+
+          <div v-if="compressionDirty" class="actions">
+            <button class="reset-btn" :disabled="compressionSaving" @click="resetCompression">{{ t('settings.reset') }}</button>
+            <button class="save-btn" :disabled="compressionSaving" @click="saveCompression">{{ compressionSaving ? t('settings.saving') : t('common.save') }}</button>
+          </div>
         </div>
       </section>
 
@@ -604,7 +745,9 @@ async function toggleLaunchAtLogin() {
 }
 
 .section + .section {
-  margin-top: $spacing-xxl;
+  margin-top: $spacing-lg;
+  padding-top: $spacing-lg;
+  border-top: 1px solid $border-light;
 }
 
 .section-title {
@@ -612,6 +755,29 @@ async function toggleLaunchAtLogin() {
   font-weight: 600;
   color: $text-primary;
   margin-bottom: $spacing-sm;
+
+  &.clickable {
+    display: flex;
+    align-items: center;
+    gap: $spacing-xs;
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+      color: $primary-color;
+    }
+
+    .chev {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      transition: transform 0.18s ease;
+    }
+
+    &.open .chev {
+      transform: rotate(180deg);
+    }
+  }
 }
 
 .setting-row {
@@ -874,10 +1040,15 @@ async function toggleLaunchAtLogin() {
   background: $bg-input;
   color: $text-primary;
   cursor: pointer;
-  transition: background $transition-fast;
+  transition: background $transition-fast, color $transition-fast;
 
   &:hover:not(:disabled) {
     background: $bg-hover;
+  }
+
+  &.danger:hover:not(:disabled) {
+    background: rgba(250, 81, 81, 0.12);
+    color: #fa5151;
   }
 
   &:disabled {

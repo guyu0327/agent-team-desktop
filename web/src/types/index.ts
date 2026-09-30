@@ -19,9 +19,45 @@ export interface Agent {
   isOrchestrator: boolean
   systemPrompt: string
   temperature: number
+  /** 启用的技能 ID 列表（技能目录名），聊天中智能体按需加载 */
+  skillIds: string[]
 }
 
 export type AgentDraft = Omit<Agent, 'id'>
+
+/** 技能列表项 */
+export interface Skill {
+  skillId: string
+  name: string
+  description: string
+  updatedAt: number | null
+  /** 绑定了该技能的智能体数量 */
+  agentCount: number
+  /** 全局技能：所有智能体可用（含未单独勾选的） */
+  global: boolean
+}
+
+export interface SkillDetail {
+  skillId: string
+  name: string
+  description: string
+  /** SKILL.md 正文（不含 frontmatter） */
+  content: string
+  updatedAt: number | null
+  /** 全局技能：所有智能体可用（含未单独勾选的） */
+  global: boolean
+  /** 技能目录绝对路径（打开资源管理器用） */
+  dir: string
+  /** 辅助文件相对路径清单（不含 SKILL.md/scope.json） */
+  resources: string[]
+}
+
+export interface SkillDraft {
+  skillId: string
+  name: string
+  description: string
+  content: string
+}
 
 export interface Conversation {
   id: string
@@ -52,6 +88,17 @@ export interface Attachment {
   name: string
 }
 
+/** 单次联网活动：搜索（关键词+来源站点）或网页抓取（URL+页面标题） */
+export interface WebActivityItem {
+  tool: 'web_search' | 'fetch_webpage'
+  query?: string
+  sites?: string[]
+  url?: string
+  title?: string
+  ok?: boolean
+  error?: string
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -64,6 +111,10 @@ export interface Message {
   /** 定时任务回合标注：本条消息由哪个定时任务触发产生 */
   taskId?: string | null
   taskName?: string | null
+  /** 本条回复前的联网活动（搜索/抓取记录），渲染为气泡下折叠条 */
+  webActivity?: WebActivityItem[] | null
+  /** 本条回复的思考过程全文（推理模型），渲染为气泡下折叠条；不进对话上下文 */
+  thinking?: string | null
 }
 
 /** 定时任务：到点向绑定会话发合成用户消息触发智能体回复 */
@@ -178,4 +229,14 @@ export interface AsrStreamStatus {
   hasKey: boolean
   hasSecret: boolean
   configured: boolean
+}
+
+/** 联网搜索（AnySearch）配置（PUT 请求体，Key 留空 = 保持不变） */
+export interface AnySearchSettings {
+  apiKey: string
+}
+
+/** 联网搜索配置状态（GET/PUT/DELETE 响应，永不返回密钥明文）；未配 Key 时搜索走匿名免费档 */
+export interface AnySearchStatus {
+  hasKey: boolean
 }

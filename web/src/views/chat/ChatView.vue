@@ -34,10 +34,16 @@ const route = useRoute()
 const router = useRouter()
 
 const DIVIDER_GAP = 5 * 60 * 1000
+const INPUT_HEIGHT_KEY = 'chat-input-height'
 
 const draft = ref('')
 const listRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
+const inputAreaRef = ref<HTMLElement>()
+// 输入区高度：null 为默认（rows=3 自然高度），拖上边框调整，localStorage 记忆、双击恢复
+const inputHeight = ref<number | null>(null)
+const resizing = ref(false)
+let defaultInputHeight = 0
 const menuOpen = ref(false)
 const showHistory = ref(false)
 const showMembers = ref(false)
@@ -135,6 +141,33 @@ const canStopReply = computed(() =>
   conversationStore.isTyping(props.id) && !coordinator.value && !discussing.value)
 
 const imageAgentName = computed(() => conversationStore.isGeneratingImage(props.id))
+
+/** 实时联网活动提示（本会话最近一次搜索/抓取，start=进行中，end=已完成） */
+const webActivity = computed(() => conversationStore.webActivityByConv[props.id] ?? null)
+
+const webTip = computed(() => {
+  const a = webActivity.value
+  if (!a) return null
+  if (a.tool === 'web_search') {
+    return a.phase === 'start'
+      ? t('chat.webSearching', { q: a.query ?? '' })
+      : a.ok === false
+        ? t('chat.webSearchFail')
+        : t('chat.webSearched', { q: a.query ?? '' })
+  }
+  const host = (() => {
+    try {
+      return a.url ? new URL(a.url).host : ''
+    } catch {
+      return a.url ?? ''
+    }
+  })()
+  return a.phase === 'start'
+    ? t('chat.webFetching', { host })
+    : a.ok === false
+      ? t('chat.webFetchFail')
+      : t('chat.webFetched', { host })
+})
 
 // 消息气泡右键菜单（仅气泡本体）：imgSrc 非空表示右键点在气泡内的图片上，额外提供复制图片
 const msgCtx = ref<{ x: number; y: number; msg: Message; imgSrc: string | null } | null>(null)
@@ -358,10 +391,57 @@ function onReleaseAnywhere() {
   if (rtPhase.value !== 'idle') rtStop()
 }
 
+function clampInputHeight(h: number): number {
+  const min = defaultInputHeight || 160
+  const max = Math.round(window.innerHeight * 0.7)
+  return Math.min(Math.max(h, min), Math.max(min, max))
+}
+
+function onResizeStart(e: PointerEvent) {
+  const footer = inputAreaRef.value
+  if (!footer || e.button !== 0) return
+  e.preventDefault()
+  const startY = e.clientY
+  const startH = footer.getBoundingClientRect().height
+  resizing.value = true
+  document.documentElement.style.cursor = 'ns-resize'
+  const onMove = (ev: PointerEvent) => {
+    inputHeight.value = clampInputHeight(Math.round(startH + (startY - ev.clientY)))
+  }
+  const onUp = () => {
+    resizing.value = false
+    document.documentElement.style.cursor = ''
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+    if (inputHeight.value != null) localStorage.setItem(INPUT_HEIGHT_KEY, String(inputHeight.value))
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointercancel', onUp)
+}
+
+function resetInputHeight() {
+  inputHeight.value = null
+  localStorage.removeItem(INPUT_HEIGHT_KEY)
+}
+
+function onWindowResize() {
+  if (inputHeight.value != null) inputHeight.value = clampInputHeight(inputHeight.value)
+}
+
 onMounted(() => {
   void rtRefresh()
   window.addEventListener('pointerup', onReleaseAnywhere)
   window.addEventListener('pointercancel', onReleaseAnywhere)
+  window.addEventListener('resize', onWindowResize)
+  // 先量默认高度（rows=3 自然高度）作最小值，再应用记忆的高度，避免量到已拉伸的状态
+  nextTick(() => {
+    const footer = inputAreaRef.value
+    if (footer) defaultInputHeight = Math.round(footer.getBoundingClientRect().height)
+    const saved = Number(localStorage.getItem(INPUT_HEIGHT_KEY))
+    if (Number.isFinite(saved) && saved > 0) inputHeight.value = clampInputHeight(saved)
+  })
 })
 
 onBeforeUnmount(() => {
@@ -369,6 +449,7 @@ onBeforeUnmount(() => {
   stopWatch = null
   window.removeEventListener('pointerup', onReleaseAnywhere)
   window.removeEventListener('pointercancel', onReleaseAnywhere)
+  window.removeEventListener('resize', onWindowResize)
 })
 
 const micTitle = computed(() => {
@@ -416,6 +497,16 @@ const thinkingAgent = computed(() => {
     ?? conversation.value?.agentId
     ?? coordinator.value?.id
   return id ? agentStore.getById(id) : undefined
+})
+
+/** 思考过程流文本（thinking_delta）：气泡未打开的思考窗口期在思考条内展示；有 messageId 的在气泡内 */
+const thinkingText = computed(() => conversationStore.thinkingByConv[props.id]?.text ?? '')
+const thinkingStreamEl = ref<HTMLElement | null>(null)
+watch(thinkingText, () => {
+  nextTick(() => {
+    const el = thinkingStreamEl.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
 })
 
 /** 贴底自动滚动：用户上翻即暂停，滚回底部（或发消息/切会话）后恢复 */
@@ -778,6 +869,7 @@ function onKeydown(e: KeyboardEvent) {
             :badge="senderBadge(msg)"
             :show-name="(conversation?.type === 'group' || isWechat) && !isSelf(msg)"
             :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
+            :thinking="conversationStore.thinkingByMsg[msg.id]"
             :mentionable="conversation?.type === 'group' && !isSelf(msg)"
             @bubble-menu="openMsgCtx($event, msg)"
             @avatar-click="mentionFromAvatar(msg)"
@@ -789,6 +881,7 @@ function onKeydown(e: KeyboardEvent) {
           <div class="thinking-col">
             <span v-if="thinkingAgent" class="thinking-name">{{ thinkingAgent.name }}</span>
             <div class="thinking-bubble">
+              <div v-if="thinkingText" ref="thinkingStreamEl" class="thinking-stream">{{ thinkingText }}</div>
               <span class="dots"><span></span><span></span><span></span></span>
             </div>
           </div>
@@ -813,6 +906,13 @@ function onKeydown(e: KeyboardEvent) {
           <span class="ring" />
           <span class="text">{{ t('chat.imgGen', { name: imageAgentName }) }}</span>
           <span class="dots"><i /><i /><i /></span>
+        </div>
+        <div v-if="webTip" class="web-activity-tip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18M12 3c2.5 2.6 3.9 5.7 3.9 9s-1.4 6.4-3.9 9c-2.5-2.6-3.9-5.7-3.9-9S9.5 5.6 12 3z" />
+          </svg>
+          <span class="text">{{ webTip }}</span>
         </div>
         <div v-if="messages.length === 0" class="empty">{{ t('chat.emptyMsg') }}</div>
       </div>
@@ -857,9 +957,12 @@ function onKeydown(e: KeyboardEvent) {
       </div>
     </div>
 
-    <footer v-if="!isWechat" class="input-area" :class="{ dragging: isDragging }" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave"
+    <footer v-if="!isWechat" ref="inputAreaRef" class="input-area" :class="{ dragging: isDragging, resizing }"
+      :style="inputHeight != null ? { height: `${inputHeight}px` } : undefined"
+      @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave"
       @drop="onDrop"
     >
+      <div class="resize-handle" @pointerdown="onResizeStart" @dblclick="resetInputHeight" />
       <div v-if="isDragging" class="drop-hint">{{ t('chat.dropHint') }}</div>
       <div v-if="mentionCandidates.length > 0" class="mention-popup">
         <div class="mention-title">{{ t('chat.pickMentionAt') }}</div>
@@ -1253,11 +1356,24 @@ function onKeydown(e: KeyboardEvent) {
 
 .thinking-bubble {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
   align-items: center;
   padding: 13px $spacing-md;
   background: $bg-bubble-other;
   border-radius: 2px $radius-md $radius-md $radius-md;
+
+  /* 思考过程流文本占满整行，打字点换行到左下角 */
+  .thinking-stream {
+    flex-basis: 100%;
+    max-height: 132px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: $font-size-sm;
+    line-height: 1.55;
+    color: $text-secondary;
+  }
 
   .dots {
     display: flex;
@@ -1293,6 +1409,34 @@ function onKeydown(e: KeyboardEvent) {
   30% {
     opacity: 1;
     transform: translateY(-2px);
+  }
+}
+
+.web-activity-tip {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  width: fit-content;
+  max-width: 70%;
+  margin: $spacing-sm 0 $spacing-sm calc(36px + #{$spacing-md});
+  padding: 8px $spacing-md;
+  border-radius: $radius-md;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+
+  svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: $text-tertiary;
+  }
+
+  .text {
+    font-size: $font-size-sm;
+    color: $text-secondary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
@@ -1557,6 +1701,24 @@ function onKeydown(e: KeyboardEvent) {
   flex-direction: column;
   gap: $spacing-sm;
 
+  // 上边框即拖拽手柄：平时隐形，悬停/拖动时边框亮起提示可拖
+  .resize-handle {
+    position: absolute;
+    top: -3px;
+    left: 0;
+    right: 0;
+    height: 7px;
+    z-index: 5;
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+  }
+
+  &:has(.resize-handle:hover),
+  &.resizing {
+    border-top-color: rgba(var(--c-primary-rgb), 0.65);
+  }
+
   &.dragging {
     outline: 2px dashed $primary-color;
     outline-offset: -6px;
@@ -1782,6 +1944,8 @@ function onKeydown(e: KeyboardEvent) {
   color: $text-primary;
   font-size: $font-size-base;
   line-height: 1.5;
+  flex: 1 1 auto;
+  min-height: 0;
 
   &::placeholder {
     color: $text-tertiary;

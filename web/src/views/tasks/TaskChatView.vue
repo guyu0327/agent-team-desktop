@@ -210,6 +210,16 @@ const thinkingAgent = computed(() => {
   return id ? agentStore.getById(id) : undefined
 })
 
+/** 思考过程流文本（thinking_delta）：气泡未打开的思考窗口期在思考条内展示；有 messageId 的在气泡内 */
+const thinkingText = computed(() => conversationStore.thinkingByConv[props.id]?.text ?? '')
+const thinkingStreamEl = ref<HTMLElement | null>(null)
+watch(thinkingText, () => {
+  nextTick(() => {
+    const el = thinkingStreamEl.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+})
+
 /** 贴底自动滚动：上翻暂停，滚回底部或切换会话后恢复 */
 const stickToBottom = ref(true)
 let lastScrollTop = 0
@@ -515,6 +525,7 @@ async function onMoreSelect(key: string) {
             :badge="senderBadge(msg)"
             :show-name="conversation?.type === 'group' && !isSelf(msg)"
             :typing="conversationStore.isTyping(props.id) && i === visibleMessages.length - 1"
+            :thinking="conversationStore.thinkingByMsg[msg.id]"
             @bubble-menu="openMsgCtx($event, msg)"
           />
         </template>
@@ -523,6 +534,7 @@ async function onMoreSelect(key: string) {
           <div class="thinking-col">
             <span v-if="thinkingAgent" class="thinking-name">{{ thinkingAgent.name }}</span>
             <div class="thinking-bubble">
+              <div v-if="thinkingText" ref="thinkingStreamEl" class="thinking-stream">{{ thinkingText }}</div>
               <span class="dots"><span></span><span></span><span></span></span>
             </div>
           </div>
@@ -894,11 +906,24 @@ async function onMoreSelect(key: string) {
 
 .thinking-bubble {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
   align-items: center;
   padding: 13px $spacing-md;
   background: $bg-bubble-other;
   border-radius: 2px $radius-md $radius-md $radius-md;
+
+  /* 思考过程流文本占满整行，打字点换行到左下角 */
+  .thinking-stream {
+    flex-basis: 100%;
+    max-height: 132px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: $font-size-sm;
+    line-height: 1.55;
+    color: $text-secondary;
+  }
 
   .dots {
     display: flex;

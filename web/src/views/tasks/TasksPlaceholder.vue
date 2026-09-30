@@ -4,9 +4,9 @@ import { t } from '@/i18n'
 
 <template>
   <div class="tasks-placeholder drag-region">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3.5 2" stroke-linecap="round" />
+      <path d="M12 7v5l3.5 2" />
     </svg>
     <p>{{ t('tasks.pickToView') }}</p>
   </div>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { AgentDraft } from '@/types'
 import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
+import { useSkillStore } from '@/stores/skill'
 import { AVATAR_PRESETS } from '@/mock/seed'
 import Avatar from '@/components/common/Avatar.vue'
 import { t } from '@/i18n'
@@ -13,6 +14,11 @@ const props = defineProps<{ id?: string }>()
 const router = useRouter()
 const agentStore = useAgentStore()
 const presetStore = useModelPresetStore()
+const skillStore = useSkillStore()
+
+onMounted(() => {
+  if (skillStore.skills.length === 0) skillStore.loadSkills().catch(() => {})
+})
 
 const isEdit = computed(() => !!props.id)
 const existing = computed(() => (props.id ? agentStore.getById(props.id) : undefined))
@@ -27,6 +33,7 @@ const form = reactive<AgentDraft>({
   isOrchestrator: false,
   systemPrompt: '',
   temperature: 0.7,
+  skillIds: [],
 })
 
 // /contact/add 与 /contact/:id/edit 复用同一组件实例，路由切换时需重放表单回显
@@ -41,6 +48,7 @@ function syncForm() {
   form.isOrchestrator = e?.isOrchestrator ?? false
   form.systemPrompt = e?.systemPrompt ?? ''
   form.temperature = e?.temperature ?? 0.7
+  form.skillIds = [...(e?.skillIds ?? [])]
 }
 
 watch(() => props.id, syncForm, { immediate: true })
@@ -102,6 +110,13 @@ function applyGroupSuggestion() {
 
 function pickAvatar(emoji: string) {
   form.avatar = form.avatar === emoji ? '' : emoji
+}
+
+function toggleSkill(skillId: string) {
+  const set = new Set(form.skillIds)
+  if (set.has(skillId)) set.delete(skillId)
+  else set.add(skillId)
+  form.skillIds = [...set]
 }
 
 async function save() {
@@ -224,6 +239,26 @@ function cancel() {
           </option>
         </select>
         <p class="preset-empty">{{ t('agentForm.imagePresetHint') }}</p>
+      </div>
+
+      <div class="field">
+        <label class="label">{{ t('agentForm.skillsLabel') }}</label>
+        <p class="preset-empty">{{ t('agentForm.skillsHint') }}</p>
+        <div v-if="skillStore.skills.length > 0" class="skill-checks">
+          <label
+            v-for="s in skillStore.skills"
+            :key="s.skillId"
+            class="skill-check"
+            :title="s.description"
+          >
+            <input type="checkbox" :checked="form.skillIds.includes(s.skillId)" @change="toggleSkill(s.skillId)" />
+            <span class="skill-name">{{ s.name }}</span>
+          </label>
+        </div>
+        <p v-else class="preset-empty">
+          {{ t('agentForm.noSkills') }}
+          <router-link to="/skills/add" class="link">{{ t('agentForm.goSkills') }}</router-link>
+        </p>
       </div>
 
       <div class="field">
@@ -438,6 +473,40 @@ function cancel() {
     &:hover {
       text-decoration: underline;
     }
+  }
+}
+
+.skill-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.skill-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px $spacing-md;
+  border-radius: $radius-sm;
+  background: $bg-input;
+  cursor: pointer;
+  font-size: $font-size-sm;
+  color: $text-primary;
+  transition: background $transition-fast, outline-color $transition-fast;
+  outline: 1px solid transparent;
+
+  &:hover {
+    background: $bg-hover;
+  }
+
+  &:has(input:checked) {
+    background: $primary-light;
+    outline-color: $primary-color;
+  }
+
+  input {
+    accent-color: $primary-color;
+    cursor: pointer;
   }
 }
 

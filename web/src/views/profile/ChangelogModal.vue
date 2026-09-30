@@ -1,13 +1,23 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { APP_VERSION } from '@/constants/app'
 import { CHANGELOG } from './changelog'
 import { t } from '@/i18n'
 
 const emit = defineEmits<{ close: [] }>()
+
+// 遮罩关闭判定：按下与松开都发生在遮罩上才关闭，按住从卡片内拖到遮罩松手不关
+const maskDown = ref(false)
+const maskUp = ref(false)
 </script>
 
 <template>
-  <div class="changelog-mask" @click.self="emit('close')">
+  <div
+    class="changelog-mask"
+    @pointerdown="maskDown = $event.target === $event.currentTarget"
+    @pointerup="maskUp = $event.target === $event.currentTarget"
+    @click.self="maskDown && maskUp && emit('close')"
+  >
     <div class="changelog-card">
       <h3 class="title">{{ t('changelog.title') }}</h3>
       <div class="entry-list">
