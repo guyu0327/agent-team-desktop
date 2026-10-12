@@ -5,6 +5,8 @@ import type { AgentDraft } from '@/types'
 import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { useSkillStore } from '@/stores/skill'
+import { autoFillAgent } from '@/api/agent'
+import { confirmAction } from '@/composables/confirm'
 import { AVATAR_PRESETS } from '@/mock/seed'
 import Avatar from '@/components/common/Avatar.vue'
 import { t } from '@/i18n'
@@ -119,6 +121,70 @@ function toggleSkill(skillId: string) {
   form.skillIds = [...set]
 }
 
+// —— 一句话自动生成（仅新建页）：生成基础六项，预设与技能仍由用户手动选择 ——
+const chatPresets = computed(() => presetStore.presets.filter((p) => p.protocol === 'openai-chat'))
+
+const AUTO_MODEL_KEY = 'agent-autofill-model'
+
+function presetLabel(p: { name: string; remark: string }) {
+  return p.remark ? `${p.remark}（${p.name}）` : p.name
+}
+
+const autoPrompt = ref('')
+const autoPresetId = ref('')
+const autoLoading = ref(false)
+const autoError = ref('')
+
+watch(
+  chatPresets,
+  (list) => {
+    if (list.some((p) => p.id === autoPresetId.value)) return
+    let saved = ''
+    try {
+      saved = localStorage.getItem(AUTO_MODEL_KEY) ?? ''
+    } catch {
+      saved = ''
+    }
+    autoPresetId.value =
+      saved && list.some((p) => p.id === saved) ? saved : (list[0]?.id ?? '')
+  },
+  { immediate: true },
+)
+
+async function autoFill() {
+  if (autoLoading.value || !autoPrompt.value.trim() || !autoPresetId.value) return
+  const hasContent =
+    form.name.trim() || form.systemPrompt.trim() || form.description.trim() || form.groupName.trim()
+  if (hasContent) {
+    const ok = await confirmAction({
+      title: t('agentForm.autoTitle'),
+      message: t('agentForm.autoOverwrite'),
+      confirmText: t('agentForm.autoGenerate'),
+    })
+    if (!ok) return
+  }
+  autoLoading.value = true
+  autoError.value = ''
+  try {
+    const draft = await autoFillAgent(autoPrompt.value.trim(), autoPresetId.value)
+    form.name = draft.name
+    form.avatar = draft.avatar
+    form.groupName = draft.groupName
+    form.description = draft.description
+    form.systemPrompt = draft.systemPrompt
+    form.temperature = draft.temperature ?? 0.7
+    try {
+      localStorage.setItem(AUTO_MODEL_KEY, autoPresetId.value)
+    } catch {
+      /* 存储不可用不影响主流程 */
+    }
+  } catch (e) {
+    autoError.value = e instanceof Error ? e.message : t('agentForm.autoFailed')
+  } finally {
+    autoLoading.value = false
+  }
+}
+
 async function save() {
   if (!form.name.trim() || !form.presetId) return
   if (isEdit.value && props.id) {
@@ -139,6 +205,32 @@ function cancel() {
   <div class="agent-form">
     <div class="form-card">
       <h2 class="form-title">{{ isEdit ? t('agentForm.editTitle') : t('agentForm.addTitle') }}</h2>
+
+      <div v-if="!isEdit" class="autofill">
+        <input
+          v-model="autoPrompt"
+          class="input"
+          :placeholder="t('agentForm.autoPromptPh')"
+          @keydown.enter.prevent="autoFill"
+        />
+        <div class="autofill-row">
+          <select v-model="autoPresetId" class="input" :disabled="chatPresets.length === 0">
+            <option value="" disabled>{{ t('agentForm.autoModel') }}</option>
+            <option v-for="p in chatPresets" :key="p.id" :value="p.id">{{ presetLabel(p) }}</option>
+          </select>
+          <button
+            type="button"
+            class="btn primary autofill-btn"
+            :disabled="autoLoading || !autoPrompt.trim() || !autoPresetId"
+            @click="autoFill"
+          >
+            ✨ {{ autoLoading ? t('agentForm.autoGenerating') : t('agentForm.autoGenerate') }}
+          </button>
+        </div>
+        <p v-if="chatPresets.length === 0" class="error">{{ t('agentForm.autoNoModel') }}</p>
+        <p v-if="autoError" class="error">{{ autoError }}</p>
+        <p class="autofill-hint">{{ t('agentForm.autoHint') }}</p>
+      </div>
 
       <div class="field">
         <label class="label">{{ t('agentForm.preview') }}</label>
@@ -327,6 +419,34 @@ function cancel() {
   font-size: $font-size-lg;
   font-weight: 600;
   color: $text-primary;
+}
+
+.autofill {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.autofill-row {
+  display: flex;
+  gap: $spacing-sm;
+
+  select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .autofill-btn {
+    flex-shrink: 0;
+    padding: 8px $spacing-lg;
+    white-space: nowrap;
+  }
+}
+
+.autofill-hint {
+  font-size: $font-size-xs;
+  color: $text-tertiary;
+  line-height: 1.5;
 }
 
 .field {

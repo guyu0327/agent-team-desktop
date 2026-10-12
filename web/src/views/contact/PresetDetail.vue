@@ -4,7 +4,9 @@ import { useRouter } from 'vue-router'
 import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
+import { showToast } from '@/composables/toast'
 import Avatar from '@/components/common/Avatar.vue'
+import ApplyAgentsDialog from './ApplyAgentsDialog.vue'
 import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
@@ -14,6 +16,8 @@ const agentStore = useAgentStore()
 const presetStore = useModelPresetStore()
 
 const preset = computed(() => presetStore.findById(props.id))
+
+const showApply = ref(false)
 
 const rootRef = ref<HTMLElement | null>(null)
 
@@ -119,12 +123,20 @@ async function remove() {
         </div>
 
         <div class="actions">
+          <button class="action-btn" @click="showApply = true">{{ t('models.applyAgents') }}</button>
           <button class="action-btn" @click="router.push(`/models/${preset.id}/edit`)">{{ t('common.edit') }}</button>
           <button class="action-btn danger" @click="remove">{{ t('common.delete') }}</button>
         </div>
       </div>
     </template>
     <div v-else class="not-found">{{ t('models.notFound') }}</div>
+
+    <ApplyAgentsDialog
+      v-if="showApply && preset"
+      :preset="preset"
+      @close="showApply = false"
+      @applied="(n: number) => { showApply = false; showToast(t('models.applyDone', { n })) }"
+    />
   </div>
 </template>
 

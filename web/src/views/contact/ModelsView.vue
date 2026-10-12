@@ -7,6 +7,8 @@ import { alertAction, confirmAction } from '@/composables/confirm'
 import SearchBar from '@/components/common/SearchBar.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ConsoleLinksPopover from './ConsoleLinksPopover.vue'
+import ApplyAgentsDialog from './ApplyAgentsDialog.vue'
+import { showToast } from '@/composables/toast'
 import { t } from '@/i18n'
 
 const route = useRoute()
@@ -72,8 +74,12 @@ const activeId = computed(() =>
 // 预设右键菜单
 const ctx = ref<{ x: number; y: number; preset: ModelPreset } | null>(null)
 
+// 批量应用到智能体
+const applyTarget = ref<ModelPreset | null>(null)
+
 const ctxItems = computed(() => [
   { key: 'edit', label: t('common.edit') },
+  { key: 'apply', label: t('models.applyAgents') },
   { key: 'delete', label: t('common.delete'), danger: true },
 ])
 
@@ -82,6 +88,10 @@ async function onCtxSelect(key: string) {
   if (!preset) return
   if (key === 'edit') {
     router.push(`/models/${preset.id}/edit`)
+    return
+  }
+  if (key === 'apply') {
+    applyTarget.value = preset
     return
   }
   if (key === 'delete') {
@@ -185,6 +195,13 @@ async function onCtxSelect(key: string) {
     </section>
 
     <ConsoleLinksPopover v-if="showConsole" @close="showConsole = false" />
+
+    <ApplyAgentsDialog
+      v-if="applyTarget"
+      :preset="applyTarget"
+      @close="applyTarget = null"
+      @applied="(n: number) => { applyTarget = null; showToast(t('models.applyDone', { n })) }"
+    />
   </div>
 </template>
 

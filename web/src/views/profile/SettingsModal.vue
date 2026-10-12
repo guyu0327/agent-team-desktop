@@ -8,6 +8,7 @@ import { clearAnySearchSettings, getAnySearchSettings, updateAnySearchSettings }
 import type { AnySearchStatus, AsrStreamStatus } from '@/types'
 import { desktop, openLocalPath } from '@/api/desktop'
 import { confirmAction } from '@/composables/confirm'
+import { closePref, loadClosePref, setClosePref } from '@/composables/closeConfirm'
 import { showToast } from '@/composables/toast'
 import {
   applyLang,
@@ -154,6 +155,9 @@ async function saveCompression() {
 
 const theme = ref<ThemeMode>(currentTheme())
 const lang = ref<AppLang>(currentLang())
+
+// 关闭窗口行为：与关闭确认框共用同一偏好（'ask' 即每次询问）
+loadClosePref()
 
 function selectTheme(mode: ThemeMode) {
   theme.value = mode
@@ -463,6 +467,18 @@ async function toggleLaunchAtLogin() {
             <div class="seg">
               <button class="seg-btn" :class="{ on: lang === 'zh' }" @click="selectLang('zh')">中文</button>
               <button class="seg-btn" :class="{ on: lang === 'en' }" @click="selectLang('en')">English</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.closeAction') }}</span>
+              <span class="row-desc">{{ t('settings.closeActionDesc') }}</span>
+            </span>
+            <div class="seg">
+              <button class="seg-btn" :class="{ on: closePref === 'ask' }" @click="setClosePref('ask')">{{ t('settings.closeAsk') }}</button>
+              <button class="seg-btn" :class="{ on: closePref === 'minimize' }" @click="setClosePref('minimize')">{{ t('settings.closeMinimize') }}</button>
+              <button class="seg-btn" :class="{ on: closePref === 'quit' }" @click="setClosePref('quit')">{{ t('settings.closeQuit') }}</button>
             </div>
           </div>
         </div>

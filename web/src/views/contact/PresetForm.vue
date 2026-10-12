@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { ModelPresetDraft, ModelPresetProtocol } from '@/types'
+import type { ModelPresetDraft, ModelPresetProtocol, ModelPresetTestResult } from '@/types'
 import { useModelPresetStore } from '@/stores/modelPreset'
+import { testModelPreset } from '@/api/modelPreset'
 import { t } from '@/i18n'
 
 const props = defineProps<{ id?: string }>()
@@ -89,6 +90,47 @@ async function save() {
 function cancel() {
   router.back()
 }
+
+const testable = computed(() => form.protocol === 'openai-chat')
+
+const testing = ref(false)
+const testResult = ref<ModelPresetTestResult | null>(null)
+
+// 表单内容变化后旧测试结果即失效
+watch(
+  () => [form.name, form.protocol, form.baseUrl, form.apiKey],
+  () => {
+    testResult.value = null
+  },
+)
+
+async function testConnection() {
+  if (testing.value || !testable.value || !form.name.trim() || !form.baseUrl.trim()) return
+  testing.value = true
+  testResult.value = null
+  try {
+    testResult.value = await testModelPreset({
+      presetId: props.id,
+      name: form.name,
+      protocol: form.protocol,
+      baseUrl: form.baseUrl,
+      apiKey: form.apiKey,
+    })
+  } catch (e) {
+    testResult.value = {
+      ok: false,
+      latencyMs: 0,
+      reply: '',
+      message: e instanceof Error ? e.message : t('presetForm.testFailed'),
+    }
+  } finally {
+    testing.value = false
+  }
+}
+
+function latencyText(ms: number) {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
+}
 </script>
 
 <template>
@@ -131,7 +173,20 @@ function cancel() {
 
       <p v-if="formError" class="error">{{ formError }}</p>
 
+      <p v-if="testResult" class="test-result" :class="testResult.ok ? 'ok' : 'fail'">
+        <template v-if="testResult.ok">{{ t('presetForm.testOk') }} · {{ latencyText(testResult.latencyMs) }}<template v-if="testResult.reply"> · {{ testResult.reply }}</template></template>
+        <template v-else>{{ testResult.message }}</template>
+      </p>
+
       <div class="actions">
+        <button
+          class="btn test-btn"
+          :disabled="testing || !testable || !form.name.trim() || !form.baseUrl.trim()"
+          :title="testable ? undefined : t('presetForm.testDisabled')"
+          @click="testConnection"
+        >
+          {{ testing ? t('presetForm.testing') : t('presetForm.test') }}
+        </button>
         <button class="btn" @click="cancel">{{ t('common.cancel') }}</button>
         <button class="btn primary" :disabled="saving" @click="save">
           {{ saving ? t('settings.saving') : isEdit ? t('common.save') : t('message.create') }}
@@ -216,12 +271,29 @@ select.input {
   color: #fa5151;
 }
 
+.test-result {
+  font-size: $font-size-xs;
+  word-break: break-all;
+
+  &.ok {
+    color: #07c160;
+  }
+
+  &.fail {
+    color: #fa5151;
+  }
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
   gap: $spacing-md;
   padding-top: $spacing-sm;
   border-top: 1px solid $border-color;
+
+  .test-btn {
+    margin-right: auto;
+  }
 }
 
 .btn {

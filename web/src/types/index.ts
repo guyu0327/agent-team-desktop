@@ -197,6 +197,24 @@ export interface ModelPresetDraft {
   remark: string
 }
 
+/** 测试连接结果：ok=false 时 message 为简要失败原因 */
+export interface ModelPresetTestResult {
+  ok: boolean
+  latencyMs: number
+  reply: string
+  message: string
+}
+
+/** 一句话自动生成的智能体基础配置（预设与技能不参与生成） */
+export interface AgentAutoFillDraft {
+  name: string
+  avatar: string
+  groupName: string
+  description: string
+  systemPrompt: string
+  temperature: number
+}
+
 /** 智能体文件沙箱设置：主工作区 + 白名单目录，均为当前生效的绝对路径 */
 export interface WorkspaceSettings {
   root: string
