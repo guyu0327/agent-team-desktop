@@ -2,6 +2,10 @@
 
 私有化部署的桌面客户端：Electron 窗口内置 Vue 3 前端（`web/` 子目录，经 git subtree 并入），并自动拉起 [agent-team-server](https://github.com/guyu0327/agent-team-server) 后端（SQLite 单文件数据库），零外部依赖，开箱即用。
 
+## 下载
+
+最新版 Windows 安装包（内置 JRE，无需 Java）请到 [**Releases**](https://github.com/guyu0327/agent-team-desktop/releases) 页面下载。
+
 ## 相关仓库
 
 - [agent-team-server](https://github.com/guyu0327/agent-team-server)：Spring Boot 后端（编排、会话、消息、SSE）
@@ -104,12 +108,3 @@ npm run dist:mac:dir # macOS 免安装 .app → dist/mac-*/（打包态调试用
 - Node.js 20.19+（构建 web/ 前端与 Electron 壳时）
 - 构建 JRE 与后端 jar 需要 JDK 21+；**运行打包产物不需要 Java**（已内置裁剪版 JRE）
 - Electron 二进制已配置国内镜像（`.npmrc`），`npm install` 即可
-
-## 待办
-
-- [x] 数据备份/恢复（设置页「数据管理」：导出备份 / 从备份恢复 / 打开数据目录）
-- [x] 应用图标（`build/icon.ico` + `build/icon.png`，rcedit 写入 exe，窗口/任务栏/托盘同源）
-- [x] 双平台自绘标题栏（Windows 弱化标题条 + 系统窗口按钮；macOS 侧边栏自绘红绿灯 + 顶部拖拽区）
-- [ ] 代码签名（双平台均未签名，首次运行可能有 SmartScreen / Gatekeeper 提示）
-- [ ] 自动更新（electron-updater，按需）
-- [x] macOS 打包（dmg/app，`npm run dist:mac`，须在 Mac 上执行）
