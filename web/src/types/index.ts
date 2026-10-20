@@ -99,6 +99,19 @@ export interface WebActivityItem {
   error?: string
 }
 
+/** 单次浏览器操作记录：打开/点击/输入等（end 阶段带结果与自动截图路径） */
+export interface BrowseActivityItem {
+  tool: string
+  url?: string
+  ref?: string
+  title?: string
+  ok?: boolean
+  error?: string
+  /** 自动截图的本地文件路径（fsContentUrl 可展示） */
+  screenshot?: string | null
+  direction?: string
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -113,6 +126,8 @@ export interface Message {
   taskName?: string | null
   /** 本条回复前的联网活动（搜索/抓取记录），渲染为气泡下折叠条 */
   webActivity?: WebActivityItem[] | null
+  /** 本条回复中的浏览器操作记录（含自动截图），渲染为气泡下折叠条 */
+  browseActivity?: BrowseActivityItem[] | null
   /** 本条回复的思考过程全文（推理模型），渲染为气泡下折叠条；不进对话上下文 */
   thinking?: string | null
 }
@@ -140,6 +155,8 @@ export interface ScheduledTask {
   autoWrite?: boolean
   /** 后台触发回合是否自动放行执行终端命令（默认关） */
   autoShell?: boolean
+  /** 后台触发回合是否自动放行打开网页（默认关） */
+  autoBrowser?: boolean
   createdAt: number
 }
 
@@ -165,6 +182,7 @@ export interface TaskDraft {
   catchUp?: boolean
   autoWrite?: boolean
   autoShell?: boolean
+  autoBrowser?: boolean
 }
 
 /** 会话已授权的文件/目录 */
@@ -221,11 +239,11 @@ export interface WorkspaceSettings {
   extraDirs: string[]
 }
 
-/** 受控操作审批请求：智能体调用 write_file / edit_file / execute 时弹出卡片等待用户决定 */
+/** 受控操作审批请求：智能体调用 write_file / edit_file / execute / browser_open 时弹出卡片等待用户决定 */
 export interface OpRequest {
   requestId: string
   conversationId: string
-  opType: 'write' | 'edit' | 'shell'
+  opType: 'write' | 'edit' | 'shell' | 'browser'
   agentId: string
   agentName: string
   /** 操作目标：文件路径（shell 命令为 null） */

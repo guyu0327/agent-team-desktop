@@ -169,6 +169,30 @@ const webTip = computed(() => {
       : t('chat.webFetched', { host })
 })
 
+/** 实时浏览器操作提示（本会话最近一次 browser_* 工具执行，start=进行中，end=已完成） */
+const browseActivity = computed(() => conversationStore.browseActivityByConv[props.id] ?? null)
+
+const BROWSE_LABEL_KEYS: Record<string, string> = {
+  browser_open: 'chat.browserToolOpen',
+  browser_click: 'chat.browserToolClick',
+  browser_type: 'chat.browserToolType',
+  browser_select: 'chat.browserToolSelect',
+  browser_scroll: 'chat.browserToolScroll',
+  browser_screenshot: 'chat.browserToolShot',
+  browser_back: 'chat.browserToolBack',
+  browser_close: 'chat.browserToolClose',
+}
+
+const browseTip = computed(() => {
+  const a = browseActivity.value
+  if (!a) return null
+  const key = BROWSE_LABEL_KEYS[a.tool]
+  const action = key ? t(key) : a.tool
+  if (a.phase === 'start') return t('chat.browserWorking', { action })
+  if (a.ok === false) return t('chat.browserFailed')
+  return t('chat.browserDone', { action })
+})
+
 // 消息气泡右键菜单（仅气泡本体）：imgSrc 非空表示右键点在气泡内的图片上，额外提供复制图片
 const msgCtx = ref<{ x: number; y: number; msg: Message; imgSrc: string | null } | null>(null)
 
@@ -219,7 +243,7 @@ async function onMsgCtxSelect(key: string) {
 
 const pendingRequests = computed(() => conversationStore.pendingOpRequests(props.id))
 
-async function decideOp(r: OpRequest, decision: 'once' | 'conversation' | 'deny') {
+async function decideOp(r: OpRequest, decision: 'once' | 'conversation' | 'deny' | 'whitelist') {
   try {
     await conversationStore.decideOpRequest(props.id, r, decision)
   } catch (err) {
@@ -231,6 +255,7 @@ const OP_TITLES = computed<Record<OpRequest['opType'], string>>(() => ({
   write: t('chat.opWrite'),
   edit: t('chat.opEdit'),
   shell: t('chat.opShell'),
+  browser: t('chat.opBrowser'),
 }))
 
 const configTip = computed(() => {
@@ -914,6 +939,13 @@ function onKeydown(e: KeyboardEvent) {
           </svg>
           <span class="text">{{ webTip }}</span>
         </div>
+        <div v-if="browseTip" class="web-activity-tip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="3" y="4" width="18" height="14" rx="2" />
+            <path d="M3 8h18M8 21h8" />
+          </svg>
+          <span class="text">{{ browseTip }}</span>
+        </div>
         <div v-if="messages.length === 0" class="empty">{{ t('chat.emptyMsg') }}</div>
       </div>
 
@@ -951,6 +983,7 @@ function onKeydown(e: KeyboardEvent) {
         <pre v-if="r.detail" class="op-detail">{{ r.detail }}</pre>
         <div class="op-actions">
           <button class="op-btn deny" @click="decideOp(r, 'deny')">{{ t('chat.opDeny') }}</button>
+          <button v-if="r.opType === 'browser'" class="op-btn wl" @click="decideOp(r, 'whitelist')">{{ t('chat.opWhitelist') }}</button>
           <button class="op-btn conv" @click="decideOp(r, 'conversation')">{{ t('chat.opAllowConv') }}</button>
           <button class="op-btn once" @click="decideOp(r, 'once')">{{ t('chat.opAllowOnce') }}</button>
         </div>
@@ -1662,6 +1695,16 @@ function onKeydown(e: KeyboardEvent) {
 
     &:hover {
       background: rgba(250, 81, 81, 0.08);
+    }
+  }
+
+  &.wl {
+    background: $bg-input;
+    color: #07c160;
+    border-color: rgba(7, 193, 96, 0.4);
+
+    &:hover {
+      background: rgba(7, 193, 96, 0.08);
     }
   }
 }

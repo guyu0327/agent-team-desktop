@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
-import type { Message, WebActivityItem } from '@/types'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import type { BrowseActivityItem, Message, WebActivityItem } from '@/types'
 import Avatar from '@/components/common/Avatar.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { fsContentUrl } from '@/utils/image'
@@ -36,8 +36,106 @@ const emit = defineEmits<{
 /** 只有智能体消息走 Markdown 渲染；自己消息和错误提示保持纯文本 */
 const rendered = computed(() => renderMarkdown(props.message.content))
 
+/** 应用内图片查看器：点气泡附件图/浏览记录截图时全屏查看，不再跳系统浏览器；滚轮缩放、按住拖动、双击回原大 */
+const viewerSrc = ref<string | null>(null)
+const viewerEl = ref<HTMLElement | null>(null)
+const zoom = ref(1)
+const tx = ref(0)
+const ty = ref(0)
+const dragging = ref(false)
+
+let dragStartX = 0
+let dragStartY = 0
+let baseTx = 0
+let baseTy = 0
+
+const ZOOM_MAX = 8
+
 function viewImage(path: string) {
-  window.open(fsContentUrl(path), '_blank')
+  viewerSrc.value = fsContentUrl(path)
+  zoom.value = 1
+  tx.value = 0
+  ty.value = 0
+}
+
+function closeViewer() {
+  viewerSrc.value = null
+}
+
+watch(viewerSrc, (src) => {
+  if (src) window.addEventListener('keydown', onViewerKey)
+  else window.removeEventListener('keydown', onViewerKey)
+})
+
+function onViewerKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeViewer()
+}
+
+onUnmounted(() => window.removeEventListener('keydown', onViewerKey))
+
+/** 滚轮缩放（1~8 倍），锚定光标下的点不漂移 */
+function onWheel(e: WheelEvent) {
+  const next = Math.min(ZOOM_MAX, Math.max(1, zoom.value * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))
+  const rect = viewerEl.value?.getBoundingClientRect()
+  if (rect && next !== zoom.value) {
+    const vx = e.clientX - (rect.left + rect.width / 2)
+    const vy = e.clientY - (rect.top + rect.height / 2)
+    tx.value = vx - (next / zoom.value) * (vx - tx.value)
+    ty.value = vy - (next / zoom.value) * (vy - ty.value)
+  }
+  zoom.value = next
+  if (next <= 1) {
+    tx.value = 0
+    ty.value = 0
+  }
+}
+
+function onDragStart(e: PointerEvent) {
+  if (e.button !== 0 || zoom.value <= 1) return
+  const img = e.currentTarget as HTMLElement
+  img.setPointerCapture(e.pointerId)
+  dragging.value = true
+  dragStartX = e.clientX
+  dragStartY = e.clientY
+  baseTx = tx.value
+  baseTy = ty.value
+}
+
+function onDragMove(e: PointerEvent) {
+  if (!dragging.value) return
+  tx.value = baseTx + (e.clientX - dragStartX)
+  ty.value = baseTy + (e.clientY - dragStartY)
+}
+
+function onDragEnd(e: PointerEvent) {
+  if (!dragging.value) return
+  dragging.value = false
+  const img = e.currentTarget as HTMLElement
+  if (img.hasPointerCapture(e.pointerId)) img.releasePointerCapture(e.pointerId)
+}
+
+/** 双击：适应窗口 ↔ 原始尺寸 */
+function onImgDblClick(e: MouseEvent) {
+  const img = e.currentTarget as HTMLImageElement
+  if (zoom.value > 1) {
+    zoom.value = 1
+    tx.value = 0
+    ty.value = 0
+    return
+  }
+  const fitWidth = img.getBoundingClientRect().width / zoom.value
+  if (img.naturalWidth > 0 && fitWidth > 0) {
+    const target = Math.min(ZOOM_MAX, img.naturalWidth / fitWidth)
+    if (target > 1) {
+      zoom.value = target
+      tx.value = 0
+      ty.value = 0
+    }
+  }
+}
+
+function onOverlayClick(e: MouseEvent) {
+  if (e.target === e.currentTarget) closeViewer()
 }
 
 async function openAttachment(path: string) {
@@ -47,7 +145,9 @@ async function openAttachment(path: string) {
 
 const waOpen = ref(false)
 const tlOpen = ref(false)
+const baOpen = ref(false)
 const webItems = computed<WebActivityItem[]>(() => props.message.webActivity ?? [])
+const browseItems = computed<BrowseActivityItem[]>(() => props.message.browseActivity ?? [])
 
 /** 思考过程框贴底滚动：增量到达即跟到最新一行 */
 const thinkingEl = ref<HTMLElement | null>(null)
@@ -91,6 +191,47 @@ function webItemText(item: WebActivityItem) {
 
 function webItemFail(item: WebActivityItem) {
   return item.ok === false ? item.error || t('chat.webActivityFail') : ''
+}
+
+const browseSummary = computed(() =>
+  `${t('chat.browserActivity')} · ${t('chat.browserOpCount', { n: browseItems.value.length })}`)
+
+const BROWSE_TOOL_KEYS: Record<string, string> = {
+  browser_open: 'chat.browserToolOpen',
+  browser_click: 'chat.browserToolClick',
+  browser_type: 'chat.browserToolType',
+  browser_select: 'chat.browserToolSelect',
+  browser_scroll: 'chat.browserToolScroll',
+  browser_screenshot: 'chat.browserToolShot',
+  browser_back: 'chat.browserToolBack',
+  browser_close: 'chat.browserToolClose',
+}
+
+function browseToolLabel(tool: string) {
+  const key = BROWSE_TOOL_KEYS[tool]
+  return key ? t(key) : tool
+}
+
+/** 展开态单条浏览记录的描述：打开=网址+标题，点击/输入/选择=元素编号，滚动=方向 */
+function browseItemText(item: BrowseActivityItem) {
+  switch (item.tool) {
+    case 'browser_open': {
+      const host = webHost(item.url)
+      return item.title ? `${host} — ${item.title}` : host
+    }
+    case 'browser_scroll':
+      return item.direction === 'up' ? t('chat.scrollUp') : t('chat.scrollDown')
+    case 'browser_click':
+    case 'browser_type':
+    case 'browser_select':
+      return item.ref ?? ''
+    default:
+      return ''
+  }
+}
+
+function openShot(item: BrowseActivityItem) {
+  if (item.screenshot) viewImage(item.screenshot)
 }
 
 </script>
@@ -178,8 +319,53 @@ function webItemFail(item: WebActivityItem) {
           </li>
         </ul>
       </div>
+      <div v-if="browseItems.length" class="web-activity">
+        <button class="wa-toggle" type="button" @click="baOpen = !baOpen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="3" y="4" width="18" height="14" rx="2" />
+            <path d="M3 8h18M8 21h8" />
+          </svg>
+          <span class="wa-summary">{{ browseSummary }}</span>
+          <svg class="wa-caret" :class="{ open: baOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <ul v-if="baOpen" class="wa-list">
+          <li v-for="(item, idx) in browseItems" :key="idx" :class="{ fail: item.ok === false }">
+            <span class="wa-kind">{{ browseToolLabel(item.tool) }}</span>
+            <span class="wa-text">{{ browseItemText(item) }}</span>
+            <img
+              v-if="item.screenshot"
+              class="ba-shot"
+              :src="fsContentUrl(item.screenshot)"
+              :title="t('chat.viewShot')"
+              alt=""
+              @click="openShot(item)"
+            />
+            <span v-if="item.ok === false" class="wa-err">{{ item.error || t('chat.webActivityFail') }}</span>
+          </li>
+        </ul>
+      </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <div v-if="viewerSrc" ref="viewerEl" class="img-viewer" @click="onOverlayClick" @wheel.prevent="onWheel">
+      <img
+        :src="viewerSrc"
+        alt=""
+        :class="{ grabbing: dragging, grabbable: zoom > 1 && !dragging }"
+        :style="{ transform: `translate(${tx}px, ${ty}px) scale(${zoom})` }"
+        draggable="false"
+        @pointerdown="onDragStart"
+        @pointermove="onDragMove"
+        @pointerup="onDragEnd"
+        @pointercancel="onDragEnd"
+        @dblclick.prevent="onImgDblClick"
+      />
+      <button class="viewer-close" :title="t('common.close')" @click.stop="closeViewer">×</button>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped lang="scss">
@@ -368,8 +554,25 @@ function webItemFail(item: WebActivityItem) {
       }
 
       .wa-err {
-        flex-shrink: 0;
+        min-width: 0;
+        word-break: break-all;
         color: #ff9c9c;
+      }
+
+      .ba-shot {
+        flex-shrink: 0;
+        align-self: center;
+        width: 64px;
+        height: 36px;
+        object-fit: cover;
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        cursor: zoom-in;
+        background: rgba(0, 0, 0, 0.3);
+
+        &:hover {
+          border-color: rgba(255, 255, 255, 0.3);
+        }
       }
     }
   }
@@ -656,6 +859,50 @@ function webItemFail(item: WebActivityItem) {
   30% {
     opacity: 1;
     transform: translateY(-2px);
+  }
+}
+
+.img-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.78);
+  overflow: hidden;
+
+  img {
+    max-width: 66vw;
+    max-height: 66vh;
+    user-select: none;
+
+    &.grabbable {
+      cursor: grab;
+    }
+
+    &.grabbing {
+      cursor: grabbing;
+    }
+  }
+
+  .viewer-close {
+    position: fixed;
+    top: 14px;
+    right: 20px;
+    border: none;
+    background: rgba(0, 0, 0, 0.4);
+    color: #fff;
+    font-size: 22px;
+    line-height: 1;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.65);
+    }
   }
 }
 

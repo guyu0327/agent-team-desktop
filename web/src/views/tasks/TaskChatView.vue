@@ -149,7 +149,7 @@ async function onMsgCtxSelect(key: string) {
 
 const pendingRequests = computed(() => conversationStore.pendingOpRequests(props.id))
 
-async function decideOp(r: OpRequest, decision: 'once' | 'conversation' | 'deny') {
+async function decideOp(r: OpRequest, decision: 'once' | 'conversation' | 'deny' | 'whitelist') {
   try {
     await conversationStore.decideOpRequest(props.id, r, decision)
   } catch (err) {
@@ -161,6 +161,7 @@ const OP_TITLES = computed<Record<OpRequest['opType'], string>>(() => ({
   write: t('chat.opWrite'),
   edit: t('chat.opEdit'),
   shell: t('chat.opShell'),
+  browser: t('chat.opBrowser'),
 }))
 
 const configTip = computed(() => {
@@ -597,6 +598,7 @@ async function onMoreSelect(key: string) {
         <pre v-if="r.detail" class="op-detail">{{ r.detail }}</pre>
         <div class="op-actions">
           <button class="op-btn deny" @click="decideOp(r, 'deny')">{{ t('chat.opDeny') }}</button>
+          <button v-if="r.opType === 'browser'" class="op-btn wl" @click="decideOp(r, 'whitelist')">{{ t('chat.opWhitelist') }}</button>
           <button class="op-btn conv" @click="decideOp(r, 'conversation')">{{ t('chat.opAllowConv') }}</button>
           <button class="op-btn once" @click="decideOp(r, 'once')">{{ t('chat.opAllowOnce') }}</button>
         </div>
@@ -1183,6 +1185,16 @@ async function onMoreSelect(key: string) {
 
     &:hover {
       background: rgba(250, 81, 81, 0.08);
+    }
+  }
+
+  &.wl {
+    background: $bg-input;
+    color: #07c160;
+    border-color: rgba(7, 193, 96, 0.4);
+
+    &:hover {
+      background: rgba(7, 193, 96, 0.08);
     }
   }
 }

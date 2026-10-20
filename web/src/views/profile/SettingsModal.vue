@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
 import { getCoordinationLimits, updateCoordinationLimits } from '@/api/settings'
 import { getContextCompression, updateContextCompression } from '@/api/settings'
+import { getBrowserSettings, updateBrowserSettings } from '@/api/settings'
 import { getAsrStreamSettings, updateAsrStreamSettings } from '@/api/asr'
 import { clearAnySearchSettings, getAnySearchSettings, updateAnySearchSettings } from '@/api/anysearch'
 import type { AnySearchStatus, AsrStreamStatus } from '@/types'
@@ -153,6 +154,63 @@ async function saveCompression() {
   }
 }
 
+const browserHeadless = ref(false)
+const savedBrowserHeadless = ref(false)
+const browserWhitelist = ref<string[]>([])
+const savedBrowserWhitelist = ref<string[]>([])
+const browserNewDomain = ref('')
+const browserSaving = ref(false)
+const browserFeedback = ref<{ ok: boolean; text: string } | null>(null)
+
+const browserDirty = computed(
+  () =>
+    browserHeadless.value !== savedBrowserHeadless.value ||
+    JSON.stringify(browserWhitelist.value) !== JSON.stringify(savedBrowserWhitelist.value),
+)
+
+function resetBrowser() {
+  browserHeadless.value = savedBrowserHeadless.value
+  browserWhitelist.value = [...savedBrowserWhitelist.value]
+}
+
+/** 输入可能是裸域名也可能带协议，统一规整成主机名（后端保存时也会再兜底一次） */
+function addBrowserDomain() {
+  const raw = browserNewDomain.value.trim().toLowerCase()
+  if (!raw) return
+  let host = raw
+  try {
+    host = new URL(raw.includes('://') ? raw : `https://${raw}`).hostname
+  } catch {
+    /* 按裸域名原样交给后端规整 */
+  }
+  if (host && !browserWhitelist.value.includes(host)) {
+    browserWhitelist.value = [...browserWhitelist.value, host].sort()
+  }
+  browserNewDomain.value = ''
+}
+
+function removeBrowserDomain(host: string) {
+  browserWhitelist.value = browserWhitelist.value.filter((d) => d !== host)
+}
+
+async function saveBrowser() {
+  if (browserSaving.value) return
+  browserSaving.value = true
+  browserFeedback.value = null
+  try {
+    const s = await updateBrowserSettings(browserHeadless.value, browserWhitelist.value)
+    browserHeadless.value = s.headless
+    savedBrowserHeadless.value = s.headless
+    browserWhitelist.value = [...s.whitelist]
+    savedBrowserWhitelist.value = [...s.whitelist]
+    browserFeedback.value = { ok: true, text: t('settings.browserSaved') }
+  } catch (e) {
+    browserFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.saveFailed') }
+  } finally {
+    browserSaving.value = false
+  }
+}
+
 const theme = ref<ThemeMode>(currentTheme())
 const lang = ref<AppLang>(currentLang())
 
@@ -254,6 +312,15 @@ onMounted(async () => {
     savedCompressionBudget.value = c.budgetChars
   } catch (e) {
     compressionFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.loadFailed') }
+  }
+  try {
+    const b = await getBrowserSettings()
+    browserHeadless.value = b.headless
+    savedBrowserHeadless.value = b.headless
+    browserWhitelist.value = [...(b.whitelist ?? [])]
+    savedBrowserWhitelist.value = [...(b.whitelist ?? [])]
+  } catch (e) {
+    browserFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.loadFailed') }
   }
   if (desktop.getLoginItem) {
     try {
@@ -677,6 +744,54 @@ async function toggleLaunchAtLogin() {
       </section>
 
       <section class="section">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'browser' }" @click="toggleSection('browser')">
+          {{ t('settings.browser') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'browser'" class="section-body">
+          <p class="hint">{{ t('settings.browserHint') }}</p>
+
+          <button class="setting-row" @click="browserHeadless = !browserHeadless">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.browserHeadless') }}</span>
+              <span class="row-desc">{{ t('settings.browserHeadlessDesc') }}</span>
+            </span>
+            <span class="switch" :class="{ on: browserHeadless }"><span class="knob"></span></span>
+          </button>
+
+          <div class="wl-block">
+            <p class="row-name">{{ t('settings.browserWhitelist') }}</p>
+            <p class="row-desc">{{ t('settings.browserWhitelistDesc') }}</p>
+            <div class="wl-add">
+              <input
+                v-model="browserNewDomain"
+                class="wl-input"
+                :placeholder="t('settings.browserWhitelistPlaceholder')"
+                @keydown.enter.prevent="addBrowserDomain"
+              />
+              <button class="reset-btn" :disabled="!browserNewDomain.trim()" @click="addBrowserDomain">{{ t('settings.browserWhitelistAdd') }}</button>
+            </div>
+            <p v-if="browserWhitelist.length === 0" class="wl-empty">{{ t('settings.browserWhitelistEmpty') }}</p>
+            <div v-else class="wl-list">
+              <span v-for="d in browserWhitelist" :key="d" class="wl-item">
+                {{ d }}
+                <button class="wl-remove" :title="t('settings.delete')" @click="removeBrowserDomain(d)">×</button>
+              </span>
+            </div>
+          </div>
+
+          <p v-if="browserFeedback" class="feedback" :class="browserFeedback.ok ? 'ok' : 'err'">{{ browserFeedback.text }}</p>
+
+          <div v-if="browserDirty" class="actions">
+            <button class="reset-btn" :disabled="browserSaving" @click="resetBrowser">{{ t('settings.reset') }}</button>
+            <button class="save-btn" :disabled="browserSaving" @click="saveBrowser">{{ browserSaving ? t('settings.saving') : t('common.save') }}</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
         <h3 class="section-title">{{ t('settings.data') }}</h3>
         <p class="hint">{{ t('settings.dataHint') }}</p>
 
@@ -1035,6 +1150,83 @@ async function toggleLaunchAtLogin() {
   }
 
   &.err {
+    color: #fa5151;
+  }
+}
+
+.wl-block {
+  margin-bottom: $spacing-md;
+
+  .row-name {
+    display: block;
+    font-size: $font-size-sm;
+    color: $text-primary;
+  }
+
+  .row-desc {
+    display: block;
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+    margin: 2px 0 $spacing-sm;
+    line-height: 1.5;
+  }
+}
+
+.wl-add {
+  display: flex;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-sm;
+}
+
+.wl-input {
+  flex: 1;
+  padding: 6px $spacing-sm;
+  border-radius: $radius-sm;
+  border: 1px solid $border-color;
+  background: $bg-input;
+  color: $text-primary;
+  font-size: $font-size-sm;
+  outline: none;
+
+  &:focus {
+    border-color: $primary-color;
+  }
+}
+
+.wl-empty {
+  font-size: $font-size-xs;
+  color: $text-tertiary;
+}
+
+.wl-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+}
+
+.wl-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px $spacing-sm;
+  border-radius: $radius-sm;
+  background: $bg-input;
+  border: 1px solid $border-color;
+  font-size: $font-size-xs;
+  color: $text-secondary;
+  font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
+}
+
+.wl-remove {
+  border: none;
+  background: none;
+  color: $text-tertiary;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+
+  &:hover {
     color: #fa5151;
   }
 }

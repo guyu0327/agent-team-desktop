@@ -34,3 +34,17 @@ export function getContextCompression(): Promise<ContextCompression> {
 export function updateContextCompression(enabled: boolean, budgetChars: number): Promise<ContextCompression> {
   return request('/settings/context-compression', { method: 'PUT', body: { enabled, budgetChars } })
 }
+
+/** 浏览器自动化设置：headless=false 时弹出真实浏览器窗口供用户围观 AI 操作；whitelist 域名免审批 */
+export interface BrowserSettings {
+  headless: boolean
+  whitelist: string[]
+}
+
+export function getBrowserSettings(): Promise<BrowserSettings> {
+  return request('/settings/browser')
+}
+
+export function updateBrowserSettings(headless: boolean, whitelist: string[]): Promise<BrowserSettings> {
+  return request('/settings/browser', { method: 'PUT', body: { headless, whitelist } })
+}

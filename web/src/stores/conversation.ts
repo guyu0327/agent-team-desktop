@@ -21,8 +21,18 @@ import {
   setConversationMode,
   subscribeConversationEvents,
 } from '@/api/conversation'
-import type { SendStreamHandlers, WebActivityEvent } from '@/api/conversation'
+import type { BrowseActivityEvent, SendStreamHandlers, WebActivityEvent } from '@/api/conversation'
 import { useAgentStore } from '@/stores/agent'
+
+/** 提取 URL 的小写主机名（白名单域名匹配用），解析失败返回 null */
+function urlHost(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    return new URL(url).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
 
 export const useConversationStore = defineStore('conversation', () => {
   const agentStore = useAgentStore()
@@ -43,6 +53,8 @@ export const useConversationStore = defineStore('conversation', () => {
   const imageGenByConv = ref<Record<string, string>>({})
   /** 会话 -> 最近一次联网活动（web_search/fetch_webpage 执行窗口，reply_start 或回合结束清除） */
   const webActivityByConv = ref<Record<string, WebActivityEvent | null>>({})
+  /** 会话 -> 最近一次浏览器操作（browser_* 工具执行窗口，reply_start 或回合结束清除） */
+  const browseActivityByConv = ref<Record<string, BrowseActivityEvent | null>>({})
   /** 会话 -> 待用户决定的受控操作审批请求（智能体调用 write/edit/execute 时产生） */
   const opRequestsByConv = ref<Record<string, OpRequest[]>>({})
   /** 会话 -> 即将发言的智能体（reply_pending 到 reply_start 的思考窗口，独立思考条据此显示是谁） */
@@ -104,17 +116,30 @@ export const useConversationStore = defineStore('conversation', () => {
 
   /**
    * 审批卡片决定。「本会话允许」时后端会一并放行该会话同类型的其他待审批请求，
-   * 这里同步关闭其余同类卡片；请求已超时失效（applied=false）时静默移除卡片，不再弹提示。
+   * 这里同步关闭其余同类卡片；「加入白名单」时后端会一并放行同会话命中该域名的浏览器请求，
+   * 同步关闭同域名（含子域名）的浏览器卡片；请求已超时失效（applied=false）时静默移除卡片，不再弹提示。
    */
-  async function decideOpRequest(conversationId: string, request: OpRequest, decision: 'once' | 'conversation' | 'deny') {
+  async function decideOpRequest(
+    conversationId: string,
+    request: OpRequest,
+    decision: 'once' | 'conversation' | 'deny' | 'whitelist',
+  ) {
     try {
       return await decideOperation(conversationId, request.requestId, decision)
     } finally {
       const list = opRequestsByConv.value[conversationId]
       if (!list) return
-      const remaining = list.filter(
-        (r) => (decision === 'conversation' ? r.opType !== request.opType : r.requestId !== request.requestId),
-      )
+      const whitelistHost = decision === 'whitelist' ? urlHost(request.target) : null
+      const remaining = list.filter((r) => {
+        if (decision === 'conversation') return r.opType !== request.opType
+        if (decision === 'whitelist') {
+          if (r.requestId === request.requestId) return false
+          if (r.opType !== 'browser') return true
+          const host = urlHost(r.target)
+          return !host || !whitelistHost || !(host === whitelistHost || host.endsWith('.' + whitelistHost))
+        }
+        return r.requestId !== request.requestId
+      })
       if (remaining.length > 0) opRequestsByConv.value[conversationId] = remaining
       else clearOpRequests(conversationId)
     }
@@ -217,6 +242,7 @@ export const useConversationStore = defineStore('conversation', () => {
     const coordCids = new Set<string>()
     const imgCids = new Set<string>()
     const webCids = new Set<string>()
+    const browseCids = new Set<string>()
     const state = { needsResync: false }
     const cidOf = (e: { conversationId?: string }) => e.conversationId ?? conversationId
     const handlers: SendStreamHandlers = {
@@ -239,6 +265,7 @@ export const useConversationStore = defineStore('conversation', () => {
         delete thinkingByConv.value[cid]
         // 新段落开始 = 工具执行窗口结束，实时联网提示让位给持久化折叠条（reply_end 随消息到达）
         delete webActivityByConv.value[cid]
+        delete browseActivityByConv.value[cid]
         // 观察者重连时后端会重放进行中的段（reply_start），本地已有同 ID 气泡则不重复插
         const list = messagesMap.value[cid] ?? []
         if (list.some((m) => m.id === e.messageId)) return
@@ -272,6 +299,7 @@ export const useConversationStore = defineStore('conversation', () => {
         if (msg) {
           msg.content = e.content
           if (e.webActivity?.length) msg.webActivity = e.webActivity
+          if (e.browseActivity?.length) msg.browseActivity = e.browseActivity
           if (e.thinking) msg.thinking = e.thinking
         }
         delete thinkingByMsg.value[e.messageId]
@@ -340,6 +368,10 @@ export const useConversationStore = defineStore('conversation', () => {
         webActivityByConv.value[e.conversationId] = e
         webCids.add(e.conversationId)
       },
+      onBrowseActivity: (e) => {
+        browseActivityByConv.value[e.conversationId] = e
+        browseCids.add(e.conversationId)
+      },
     }
     async function finish() {
       for (const cid of typingCids) {
@@ -351,6 +383,7 @@ export const useConversationStore = defineStore('conversation', () => {
       for (const cid of coordCids) delete orchestratingByConv.value[cid]
       for (const cid of imgCids) delete imageGenByConv.value[cid]
       for (const cid of webCids) delete webActivityByConv.value[cid]
+      for (const cid of browseCids) delete browseActivityByConv.value[cid]
       try {
         // 协作/讨论会把消息写进原会话之外的新会话（如自动建的项目群）：
         // 凡此刻正在查看的会话都要标记已读，否则稍后 loadConversations 会用服务端
@@ -521,6 +554,7 @@ export const useConversationStore = defineStore('conversation', () => {
     imageGenByConv,
     isGeneratingImage,
     webActivityByConv,
+    browseActivityByConv,
     orchestratingByConv,
     isCoordinating,
     discussingByConv,

@@ -31,9 +31,10 @@ const kind = ref<ScheduledTask['kind']>(props.task?.kind ?? 'daily')
 const mode = ref<'normal' | 'collab'>(props.task?.mode ?? 'normal')
 /** 错过的单次任务启动时是否补发，默认不补发 */
 const catchUp = ref(!!props.task?.catchUp)
-/** 后台触发回合的审批放行策略：写改文件默认开，执行命令默认关（手动执行的回合不受影响） */
+/** 后台触发回合的审批放行策略：写改文件默认开，执行命令/打开网页默认关（手动执行的回合不受影响） */
 const autoWrite = ref(props.task ? props.task.autoWrite !== false : true)
 const autoShell = ref(!!props.task?.autoShell)
+const autoBrowser = ref(!!props.task?.autoBrowser)
 
 const orchestrators = computed(() => agentStore.agents.filter((a) => a.isOrchestrator))
 /** 执行者候选：普通任务全员可选；协作任务只能选编排者 */
@@ -140,6 +141,7 @@ async function save() {
     catchUp: catchUp.value,
     autoWrite: autoWrite.value,
     autoShell: autoShell.value,
+    autoBrowser: autoBrowser.value,
   }
   try {
     if (props.task) {
@@ -324,6 +326,15 @@ async function save() {
           <div class="catchup-text">
             <span class="catchup-label">{{ t('tasks.autoShell') }}</span>
             <span class="hint">{{ t('tasks.autoShellHint') }}</span>
+          </div>
+        </div>
+        <div class="catchup-row">
+          <button type="button" class="switch" :class="{ on: autoBrowser }" @click="autoBrowser = !autoBrowser">
+            <span class="knob" />
+          </button>
+          <div class="catchup-text">
+            <span class="catchup-label">{{ t('tasks.autoBrowser') }}</span>
+            <span class="hint">{{ t('tasks.autoBrowserHint') }}</span>
           </div>
         </div>
         <span class="hint">{{ t('tasks.autoApproveHint') }}</span>

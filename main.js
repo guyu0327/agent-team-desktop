@@ -116,7 +116,12 @@ async function startBackend() {
     `--app.security.token=${backendToken}`,
   ]
 
-  backend = spawn(javaExecutable(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+  // Playwright Java 在 create() 时默认自动下载自带 Chromium（国内网络下会反复超时卡死数分钟），
+  // 后端浏览器工具只用 channel 启动系统 Edge/Chrome，用不到自带浏览器，直接跳过下载
+  backend = spawn(javaExecutable(), args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' },
+  })
   backend.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`))
   backend.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`))
   backend.on('exit', (code) => {
