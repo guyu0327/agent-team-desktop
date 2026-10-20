@@ -1,6 +1,6 @@
 {
   "name": "agent-team-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "智群 AgentTeam 桌面客户端",
   "main": "main.js",
   "scripts": {
