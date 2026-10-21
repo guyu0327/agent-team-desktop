@@ -194,14 +194,16 @@ function senderBadge(msg: Message): string | undefined {
   return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
 }
 
-/** 思考中指示条：任务触发到回复开始/接龙间隙显示「谁在思考」 */
+/** 思考中指示条：任务触发到回复开始/接龙间隙显示「谁在思考」；多段回复的间隙
+ *  （上一段已说完、智能体还在执行工具/酝酿下一段）思考条回归，避免静默真空 */
 const showThinking = computed(() => {
   // 任务回合经扇出订阅送达，typing 要到 reply_start 才置位；pending 预告须单独成立，
   // 否则「立即执行」到首段回复之间的空窗没有指示，用户会以为卡住了
   if (conversationStore.pendingReplyByConv[props.id]) return true
   if (!conversationStore.isTyping(props.id)) return false
   const last = messages.value[messages.value.length - 1]
-  return !(last && last.senderType === 'agent')
+  if (!last || last.senderType !== 'agent') return true
+  return conversationStore.activeMsgIdByConv[props.id] !== last.id
 })
 
 const thinkingAgent = computed(() => {

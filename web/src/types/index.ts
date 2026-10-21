@@ -25,6 +25,13 @@ export interface Agent {
 
 export type AgentDraft = Omit<Agent, 'id'>
 
+/** 智能体长期记忆条目（聊天中智能体自行记录，详情页可管理） */
+export interface AgentMemory {
+  id: string
+  content: string
+  createdAt: number
+}
+
 /** 技能列表项 */
 export interface Skill {
   skillId: string
@@ -112,6 +119,17 @@ export interface BrowseActivityItem {
   direction?: string
 }
 
+/** 通用工具调用记录：文件/命令/图片/技能/定时任务等（仅 end 阶段落库） */
+export interface ToolActivityItem {
+  tool: string
+  ok?: boolean
+  state?: string
+  /** 目标详情：文件/目录为绝对路径，命令/提示词/名称为原文摘要 */
+  target?: string
+  /** 可打开的本地路径（文件/目录类工具才有）：点击用系统默认方式打开 */
+  openPath?: string
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -128,6 +146,8 @@ export interface Message {
   webActivity?: WebActivityItem[] | null
   /** 本条回复中的浏览器操作记录（含自动截图），渲染为气泡下折叠条 */
   browseActivity?: BrowseActivityItem[] | null
+  /** 本条回复中的通用工具调用记录（文件/命令/技能等），渲染为气泡下折叠条 */
+  toolActivity?: ToolActivityItem[] | null
   /** 本条回复的思考过程全文（推理模型），渲染为气泡下折叠条；不进对话上下文 */
   thinking?: string | null
 }
@@ -204,6 +224,8 @@ export interface ModelPreset {
   baseUrl: string
   hasKey: boolean
   remark: string
+  /** 推理强度：空串不发送该参数，部分服务商需显式 low/medium/high 开启思考 */
+  reasoningEffort: string
 }
 
 /** 编辑时 apiKey 留空表示保持不变 */
@@ -213,6 +235,7 @@ export interface ModelPresetDraft {
   baseUrl: string
   apiKey?: string
   remark: string
+  reasoningEffort: string
 }
 
 /** 测试连接结果：ok=false 时 message 为简要失败原因 */

@@ -20,6 +20,7 @@ const form = reactive<ModelPresetDraft & { apiKey: string }>({
   baseUrl: '',
   apiKey: '',
   remark: '',
+  reasoningEffort: '',
 })
 
 // /models/add 与 /models/:id/edit 复用同一组件实例，路由切换时需重放表单回显
@@ -30,9 +31,17 @@ function syncForm() {
   form.baseUrl = e?.baseUrl ?? ''
   form.apiKey = ''
   form.remark = e?.remark ?? ''
+  form.reasoningEffort = e?.reasoningEffort ?? ''
 }
 
 watch(() => props.id, syncForm, { immediate: true })
+
+const REASONING_OPTIONS = [
+  { value: '', labelKey: 'presetForm.reasoningDefault' },
+  { value: 'low', labelKey: 'presetForm.reasoningLow' },
+  { value: 'medium', labelKey: 'presetForm.reasoningMedium' },
+  { value: 'high', labelKey: 'presetForm.reasoningHigh' },
+] as const
 
 const PROTOCOL_OPTIONS = computed<{ value: ModelPresetProtocol; label: string }[]>(() => [
   { value: 'openai-chat', label: t('models.protocolChat') },
@@ -98,7 +107,7 @@ const testResult = ref<ModelPresetTestResult | null>(null)
 
 // 表单内容变化后旧测试结果即失效
 watch(
-  () => [form.name, form.protocol, form.baseUrl, form.apiKey],
+  () => [form.name, form.protocol, form.baseUrl, form.apiKey, form.reasoningEffort],
   () => {
     testResult.value = null
   },
@@ -115,6 +124,7 @@ async function testConnection() {
       protocol: form.protocol,
       baseUrl: form.baseUrl,
       apiKey: form.apiKey,
+      reasoningEffort: form.reasoningEffort,
     })
   } catch (e) {
     testResult.value = {
@@ -169,6 +179,14 @@ function latencyText(ms: number) {
       <div class="field">
         <label class="label">{{ t('models.remarkLabel') }}</label>
         <input v-model="form.remark" class="input" maxlength="50" :placeholder="t('presetForm.remarkPh')" />
+      </div>
+
+      <div v-if="form.protocol === 'openai-chat'" class="field">
+        <label class="label">{{ t('presetForm.reasoningLabel') }}</label>
+        <select v-model="form.reasoningEffort" class="input">
+          <option v-for="opt in REASONING_OPTIONS" :key="opt.value" :value="opt.value">{{ t(opt.labelKey) }}</option>
+        </select>
+        <span class="hint">{{ t('presetForm.reasoningHint') }}</span>
       </div>
 
       <p v-if="formError" class="error">{{ formError }}</p>
@@ -264,6 +282,11 @@ select.input {
     background: $bg-panel;
     color: $text-primary;
   }
+}
+
+.hint {
+  font-size: $font-size-xs;
+  color: $text-tertiary;
 }
 
 .error {

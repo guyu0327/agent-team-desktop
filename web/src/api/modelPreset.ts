@@ -24,6 +24,7 @@ export function testModelPreset(data: {
   protocol: string
   baseUrl: string
   apiKey: string
+  reasoningEffort: string
 }): Promise<ModelPresetTestResult> {
   return request('/model-presets/test', { method: 'POST', body: data })
 }

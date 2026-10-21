@@ -21,7 +21,7 @@ import {
   setConversationMode,
   subscribeConversationEvents,
 } from '@/api/conversation'
-import type { BrowseActivityEvent, SendStreamHandlers, WebActivityEvent } from '@/api/conversation'
+import type { BrowseActivityEvent, SendStreamHandlers, ToolActivityEvent, WebActivityEvent } from '@/api/conversation'
 import { useAgentStore } from '@/stores/agent'
 
 /** 提取 URL 的小写主机名（白名单域名匹配用），解析失败返回 null */
@@ -55,12 +55,18 @@ export const useConversationStore = defineStore('conversation', () => {
   const webActivityByConv = ref<Record<string, WebActivityEvent | null>>({})
   /** 会话 -> 最近一次浏览器操作（browser_* 工具执行窗口，reply_start 或回合结束清除） */
   const browseActivityByConv = ref<Record<string, BrowseActivityEvent | null>>({})
+  /** 会话 -> 最近一次通用工具调用（文件/命令/技能等执行窗口，reply_start 或回合结束清除） */
+  const toolActivityByConv = ref<Record<string, ToolActivityEvent | null>>({})
   /** 会话 -> 待用户决定的受控操作审批请求（智能体调用 write/edit/execute 时产生） */
   const opRequestsByConv = ref<Record<string, OpRequest[]>>({})
   /** 会话 -> 即将发言的智能体（reply_pending 到 reply_start 的思考窗口，独立思考条据此显示是谁） */
   const pendingReplyByConv = ref<Record<string, string>>({})
   /** 会话 -> 思考过程流文本（thinking_delta，气泡未打开的思考窗口期在思考条内展示；reply_start/回合结束清除；不落库不重放） */
   const thinkingByConv = ref<Record<string, { agentId: string; text: string }>>({})
+
+  /** 会话 -> 当前正在流式输出的消息 id（reply_start 记下，reply_end/error 清除）：
+   *  思考条据此区分「气泡正在流正文（气泡内反馈接管）」与「上段已完、会话仍在生成（思考条回归）」 */
+  const activeMsgIdByConv = ref<Record<string, string>>({})
   /** 消息 -> 思考过程流文本（占位气泡已打开的思考窗口在气泡内展示；首个正文增量/回合结束清除） */
   const thinkingByMsg = ref<Record<string, string>>({})
 
@@ -243,6 +249,7 @@ export const useConversationStore = defineStore('conversation', () => {
     const imgCids = new Set<string>()
     const webCids = new Set<string>()
     const browseCids = new Set<string>()
+    const toolCids = new Set<string>()
     const state = { needsResync: false }
     const cidOf = (e: { conversationId?: string }) => e.conversationId ?? conversationId
     const handlers: SendStreamHandlers = {
@@ -259,6 +266,7 @@ export const useConversationStore = defineStore('conversation', () => {
         typingCids.add(cid)
         // 占位气泡出现，思考窗口结束，气泡内打字点接管
         delete pendingReplyByConv.value[cid]
+        activeMsgIdByConv.value[cid] = e.messageId
         // 思考先于正文：气泡开启即把已积累的思考全文挂到折叠条（不等 reply_end），
         // 否则思考快正文慢的消息在流出期间像没思考过一样
         const thinkText = thinkingByConv.value[cid]?.text
@@ -266,6 +274,7 @@ export const useConversationStore = defineStore('conversation', () => {
         // 新段落开始 = 工具执行窗口结束，实时联网提示让位给持久化折叠条（reply_end 随消息到达）
         delete webActivityByConv.value[cid]
         delete browseActivityByConv.value[cid]
+        delete toolActivityByConv.value[cid]
         // 观察者重连时后端会重放进行中的段（reply_start），本地已有同 ID 气泡则不重复插
         const list = messagesMap.value[cid] ?? []
         if (list.some((m) => m.id === e.messageId)) return
@@ -300,10 +309,12 @@ export const useConversationStore = defineStore('conversation', () => {
           msg.content = e.content
           if (e.webActivity?.length) msg.webActivity = e.webActivity
           if (e.browseActivity?.length) msg.browseActivity = e.browseActivity
+          if (e.toolActivity?.length) msg.toolActivity = e.toolActivity
           if (e.thinking) msg.thinking = e.thinking
         }
         delete thinkingByMsg.value[e.messageId]
         delete thinkingByConv.value[cidOf(e)]
+        delete activeMsgIdByConv.value[cidOf(e)]
       },
       onReplyError: (e) => {
         if (e.messageId) {
@@ -318,6 +329,7 @@ export const useConversationStore = defineStore('conversation', () => {
           state.needsResync = true
         }
         delete thinkingByConv.value[cidOf(e)]
+        delete activeMsgIdByConv.value[cidOf(e)]
       },
       onConversationCreated: (conv) => {
         replaceConv(conv)
@@ -372,18 +384,24 @@ export const useConversationStore = defineStore('conversation', () => {
         browseActivityByConv.value[e.conversationId] = e
         browseCids.add(e.conversationId)
       },
+      onToolActivity: (e) => {
+        toolActivityByConv.value[e.conversationId] = e
+        toolCids.add(e.conversationId)
+      },
     }
     async function finish() {
       for (const cid of typingCids) {
         typingByConv.value[cid] = false
         delete pendingReplyByConv.value[cid]
         delete thinkingByConv.value[cid]
+        delete activeMsgIdByConv.value[cid]
         for (const m of messagesMap.value[cid] ?? []) delete thinkingByMsg.value[m.id]
       }
       for (const cid of coordCids) delete orchestratingByConv.value[cid]
       for (const cid of imgCids) delete imageGenByConv.value[cid]
       for (const cid of webCids) delete webActivityByConv.value[cid]
       for (const cid of browseCids) delete browseActivityByConv.value[cid]
+      for (const cid of toolCids) delete toolActivityByConv.value[cid]
       try {
         // 协作/讨论会把消息写进原会话之外的新会话（如自动建的项目群）：
         // 凡此刻正在查看的会话都要标记已读，否则稍后 loadConversations 会用服务端
@@ -433,6 +451,7 @@ export const useConversationStore = defineStore('conversation', () => {
       typingByConv.value[conversationId] = false
       delete pendingReplyByConv.value[conversationId]
       delete thinkingByConv.value[conversationId]
+      delete activeMsgIdByConv.value[conversationId]
       for (const m of messagesMap.value[conversationId] ?? []) delete thinkingByMsg.value[m.id]
     }
     const { handlers, finish } = streamHandlers(conversationId)
@@ -555,6 +574,7 @@ export const useConversationStore = defineStore('conversation', () => {
     isGeneratingImage,
     webActivityByConv,
     browseActivityByConv,
+    toolActivityByConv,
     orchestratingByConv,
     isCoordinating,
     discussingByConv,
@@ -563,6 +583,7 @@ export const useConversationStore = defineStore('conversation', () => {
     pendingReplyByConv,
     thinkingByConv,
     thinkingByMsg,
+    activeMsgIdByConv,
     pendingOpRequests,
     decideOpRequest,
     clearOpRequests,

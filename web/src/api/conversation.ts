@@ -1,4 +1,4 @@
-import type { Attachment, BrowseActivityItem, Conversation, Message, OpRequest, WebActivityItem } from '@/types'
+import type { Attachment, BrowseActivityItem, Conversation, Message, OpRequest, ToolActivityItem, WebActivityItem } from '@/types'
 import { t } from '@/i18n'
 import { API_TOKEN, apiHeaders, apiUrl } from './base'
 import { request } from './http'
@@ -18,6 +18,14 @@ export interface WebActivityEvent extends WebActivityItem {
 
 /** 浏览器操作实时事件（browser_activity）：phase=end 带结果与自动截图路径 */
 export interface BrowseActivityEvent extends BrowseActivityItem {
+  phase: 'start' | 'end'
+  agentId: string
+  agentName: string
+  conversationId: string
+}
+
+/** 通用工具调用实时事件（tool_activity）：文件/命令/技能等非自展示工具 */
+export interface ToolActivityEvent extends ToolActivityItem {
   phase: 'start' | 'end'
   agentId: string
   agentName: string
@@ -128,7 +136,7 @@ export interface SendStreamHandlers {
   /** 推理模型的思考过程增量：带 messageId 时渲染进气泡，否则在思考条内展示（不落库、不重放） */
   onThinkingDelta?(e: { agentId: string; conversationId: string; messageId?: string; delta: string }): void
   onDelta?(e: { messageId: string; delta: string; conversationId?: string; replay?: boolean }): void
-  onReplyEnd?(e: { messageId: string; agentId: string; content: string; conversationId?: string; webActivity?: WebActivityItem[]; browseActivity?: BrowseActivityItem[]; thinking?: string }): void
+  onReplyEnd?(e: { messageId: string; agentId: string; content: string; conversationId?: string; webActivity?: WebActivityItem[]; browseActivity?: BrowseActivityItem[]; toolActivity?: ToolActivityItem[]; thinking?: string }): void
   onReplyError?(e: { messageId?: string; agentId?: string; error: string; conversationId?: string }): void
   /** 编排协作中后端新建了项目群 */
   onConversationCreated?(conv: Conversation): void
@@ -149,6 +157,8 @@ export interface SendStreamHandlers {
   onWebActivity?(e: WebActivityEvent): void
   /** 浏览器操作（browser_* 工具执行上报：打开/点击/输入等，end 带自动截图） */
   onBrowseActivity?(e: BrowseActivityEvent): void
+  /** 通用工具调用（文件/命令/图片/技能等执行上报，end 带结果状态） */
+  onToolActivity?(e: ToolActivityEvent): void
   /** 系统标注消息（微信通道切换处理智能体等），渲染为居中分隔条 */
   onSystemNote?(msg: Message): void
   onDone?(): void
@@ -275,6 +285,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
     case 'browser_activity':
       handlers.onBrowseActivity?.(payload as BrowseActivityEvent)
       break
+    case 'tool_activity':
+      handlers.onToolActivity?.(payload as ToolActivityEvent)
+      break
     case 'system_note':
       handlers.onSystemNote?.(payload as Message)
       break
@@ -288,7 +301,7 @@ const STREAM_EVENTS = [
   'user_message', 'reply_start', 'reply_pending', 'thinking_delta', 'delta', 'reply_end', 'reply_error',
   'conversation_created', 'conversation_updated', 'coordination_start', 'coordination_end',
   'discussion_start', 'discussion_end', 'op_request', 'image_start', 'image_end',
-  'web_activity', 'browser_activity', 'system_note', 'done',
+  'web_activity', 'browser_activity', 'tool_activity', 'system_note', 'done',
 ] as const
 
 /**

@@ -25,6 +25,7 @@ const LOG_TYPES = computed<{ value: string; label: string }[]>(() => [
   { value: 'image', label: t('logs.typeImage') },
   { value: 'compact', label: t('logs.typeCompact') },
   { value: 'task', label: t('logs.typeTask') },
+  { value: 'reply', label: t('logs.typeReply') },
   { value: 'wechat', label: t('logs.typeWechat') },
   { value: 'api_error', label: t('logs.typeApiError') },
 ])
@@ -297,6 +298,11 @@ onMounted(() => void load(true))
   .t-image & {
     background: rgba(120, 140, 255, 0.15);
     color: #9aa7ff;
+  }
+
+  .t-reply & {
+    background: rgba(255, 153, 0, 0.15);
+    color: #ffb84d;
   }
 }
 

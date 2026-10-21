@@ -5,8 +5,10 @@ import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { useSkillStore } from '@/stores/skill'
+import { useOutsideClose } from '@/composables/outsideClose'
 import { confirmAction } from '@/composables/confirm'
 import Avatar from '@/components/common/Avatar.vue'
+import AgentMemoryModal from './AgentMemoryModal.vue'
 import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
@@ -21,6 +23,11 @@ const agent = computed(() => agentStore.getById(props.id))
 
 const rootRef = ref<HTMLElement | null>(null)
 const promptRef = ref<HTMLElement | null>(null)
+const moreOpen = ref(false)
+const moreRef = ref<HTMLElement | undefined>(undefined)
+const showMemory = ref(false)
+
+useOutsideClose(moreRef, () => (moreOpen.value = false))
 
 // 列表切换智能体时组件被路由复用（仅参数变化），详情与角色设定内部滚动位置需归零
 watch(
@@ -121,21 +128,45 @@ async function remove() {
             </svg>
             {{ t('contact.startChat') }}
           </button>
-          <button class="action-btn" @click="router.push({ path: '/history', query: { agentId: agent.id } })">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 12a9 9 0 1 0 3-6.7L3.5 7.5" />
-              <path d="M3 3v5h5" />
-              <path d="M12 7v5l3.5 2" />
-            </svg>
-            {{ t('contact.history') }}
-          </button>
           <button class="action-btn" @click="router.push(`/contact/${agent.id}/edit`)">{{ t('common.edit') }}</button>
           <button class="action-btn danger" @click="remove">{{ t('common.delete') }}</button>
+          <div ref="moreRef" class="more-wrap">
+            <button class="action-btn" :class="{ active: moreOpen }" @click="moreOpen = !moreOpen">
+              {{ t('contact.more') }}
+              <svg class="caret" :class="{ up: moreOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            <div v-if="moreOpen" class="more-menu">
+              <button class="menu-item" @click="moreOpen = false; router.push({ path: '/history', query: { agentId: agent.id } })">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 12a9 9 0 1 0 3-6.7L3.5 7.5" />
+                  <path d="M3 3v5h5" />
+                  <path d="M12 7v5l3.5 2" />
+                </svg>
+                {{ t('contact.history') }}
+              </button>
+              <button class="menu-item" @click="moreOpen = false; showMemory = true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <ellipse cx="12" cy="5" rx="9" ry="3" />
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                </svg>
+                {{ t('contact.memoryData') }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </template>
     <div v-else class="not-found">{{ t('contact.notFound') }}</div>
   </div>
+  <AgentMemoryModal
+    v-if="showMemory && agent"
+    :agent-id="agent.id"
+    :agent-name="agent.name"
+    @close="showMemory = false"
+  />
 </template>
 
 <style scoped lang="scss">
@@ -294,6 +325,66 @@ async function remove() {
   gap: $spacing-md;
 }
 
+.more-wrap {
+  position: relative;
+}
+
+.more-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  min-width: 140px;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  border-radius: $radius-sm;
+  box-shadow: $shadow-md;
+  padding: 4px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: 8px $spacing-md;
+  border: none;
+  background: none;
+  border-radius: $radius-sm;
+  font-size: $font-size-sm;
+  color: $text-primary;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+
+  svg {
+    width: 15px;
+    height: 15px;
+    color: $text-tertiary;
+    flex-shrink: 0;
+  }
+
+  &:hover {
+    background: $bg-hover;
+
+    svg {
+      color: $primary-color;
+    }
+  }
+}
+
+.action-btn .caret {
+  width: 14px;
+  height: 14px;
+  margin-left: -2px;
+  transition: transform $transition-fast;
+
+  &.up {
+    transform: rotate(180deg);
+  }
+}
+
 .action-btn {
   display: flex;
   align-items: center;
@@ -311,7 +402,8 @@ async function remove() {
     height: 18px;
   }
 
-  &:hover {
+  &:hover,
+  &.active {
     background: $bg-hover;
   }
 

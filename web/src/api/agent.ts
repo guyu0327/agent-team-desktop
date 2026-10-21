@@ -1,4 +1,4 @@
-import type { Agent, AgentAutoFillDraft, AgentDraft } from '@/types'
+import type { Agent, AgentAutoFillDraft, AgentDraft, AgentMemory } from '@/types'
 import { request } from './http'
 
 export function listAgents(): Promise<Agent[]> {
@@ -20,4 +20,24 @@ export function updateAgent(id: string, draft: AgentDraft): Promise<Agent> {
 
 export function deleteAgent(id: string): Promise<void> {
   return request(`/agents/${id}`, { method: 'DELETE' })
+}
+
+export function listMemories(id: string): Promise<AgentMemory[]> {
+  return request(`/agents/${id}/memories`)
+}
+
+export function createMemory(id: string, content: string): Promise<AgentMemory> {
+  return request(`/agents/${id}/memories`, { method: 'POST', body: { content } })
+}
+
+export function updateMemory(agentId: string, memoryId: string, content: string): Promise<AgentMemory> {
+  return request(`/agents/${agentId}/memories/${memoryId}`, { method: 'PUT', body: { content } })
+}
+
+export function deleteMemory(agentId: string, memoryId: string): Promise<void> {
+  return request(`/agents/${agentId}/memories/${memoryId}`, { method: 'DELETE' })
+}
+
+export function clearMemories(agentId: string): Promise<void> {
+  return request(`/agents/${agentId}/memories`, { method: 'DELETE' })
 }
