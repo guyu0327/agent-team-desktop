@@ -156,6 +156,8 @@ async function saveCompression() {
 
 const browserHeadless = ref(false)
 const savedBrowserHeadless = ref(false)
+const browserPersistLogin = ref(false)
+const savedBrowserPersistLogin = ref(false)
 const browserWhitelist = ref<string[]>([])
 const savedBrowserWhitelist = ref<string[]>([])
 const browserNewDomain = ref('')
@@ -165,11 +167,13 @@ const browserFeedback = ref<{ ok: boolean; text: string } | null>(null)
 const browserDirty = computed(
   () =>
     browserHeadless.value !== savedBrowserHeadless.value ||
+    browserPersistLogin.value !== savedBrowserPersistLogin.value ||
     JSON.stringify(browserWhitelist.value) !== JSON.stringify(savedBrowserWhitelist.value),
 )
 
 function resetBrowser() {
   browserHeadless.value = savedBrowserHeadless.value
+  browserPersistLogin.value = savedBrowserPersistLogin.value
   browserWhitelist.value = [...savedBrowserWhitelist.value]
 }
 
@@ -198,9 +202,11 @@ async function saveBrowser() {
   browserSaving.value = true
   browserFeedback.value = null
   try {
-    const s = await updateBrowserSettings(browserHeadless.value, browserWhitelist.value)
+    const s = await updateBrowserSettings(browserHeadless.value, browserPersistLogin.value, browserWhitelist.value)
     browserHeadless.value = s.headless
     savedBrowserHeadless.value = s.headless
+    browserPersistLogin.value = s.persistLogin
+    savedBrowserPersistLogin.value = s.persistLogin
     browserWhitelist.value = [...s.whitelist]
     savedBrowserWhitelist.value = [...s.whitelist]
     browserFeedback.value = { ok: true, text: t('settings.browserSaved') }
@@ -317,6 +323,8 @@ onMounted(async () => {
     const b = await getBrowserSettings()
     browserHeadless.value = b.headless
     savedBrowserHeadless.value = b.headless
+    browserPersistLogin.value = b.persistLogin
+    savedBrowserPersistLogin.value = b.persistLogin
     browserWhitelist.value = [...(b.whitelist ?? [])]
     savedBrowserWhitelist.value = [...(b.whitelist ?? [])]
   } catch (e) {
@@ -759,6 +767,14 @@ async function toggleLaunchAtLogin() {
               <span class="row-desc">{{ t('settings.browserHeadlessDesc') }}</span>
             </span>
             <span class="switch" :class="{ on: browserHeadless }"><span class="knob"></span></span>
+          </button>
+
+          <button class="setting-row" @click="browserPersistLogin = !browserPersistLogin">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.browserPersistLogin') }}</span>
+              <span class="row-desc">{{ t('settings.browserPersistLoginDesc') }}</span>
+            </span>
+            <span class="switch" :class="{ on: browserPersistLogin }"><span class="knob"></span></span>
           </button>
 
           <div class="wl-block">

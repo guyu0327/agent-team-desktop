@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import type { BrowseActivityItem, Message, WebActivityItem } from '@/types'
+import type { BrowseActivityItem, Message, ToolActivityItem, WebActivityItem } from '@/types'
 import Avatar from '@/components/common/Avatar.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { fsContentUrl } from '@/utils/image'
@@ -146,8 +146,10 @@ async function openAttachment(path: string) {
 const waOpen = ref(false)
 const tlOpen = ref(false)
 const baOpen = ref(false)
+const taOpen = ref(false)
 const webItems = computed<WebActivityItem[]>(() => props.message.webActivity ?? [])
 const browseItems = computed<BrowseActivityItem[]>(() => props.message.browseActivity ?? [])
+const toolItems = computed<ToolActivityItem[]>(() => props.message.toolActivity ?? [])
 
 /** 思考过程框贴底滚动：增量到达即跟到最新一行 */
 const thinkingEl = ref<HTMLElement | null>(null)
@@ -205,6 +207,10 @@ const BROWSE_TOOL_KEYS: Record<string, string> = {
   browser_screenshot: 'chat.browserToolShot',
   browser_back: 'chat.browserToolBack',
   browser_close: 'chat.browserToolClose',
+  browser_current: 'chat.browserToolCurrent',
+  browser_refresh: 'chat.browserToolRefresh',
+  browser_tabs: 'chat.browserToolTabs',
+  browser_select_tab: 'chat.browserToolSelectTab',
 }
 
 function browseToolLabel(tool: string) {
@@ -215,7 +221,8 @@ function browseToolLabel(tool: string) {
 /** 展开态单条浏览记录的描述：打开=网址+标题，点击/输入/选择=元素编号，滚动=方向 */
 function browseItemText(item: BrowseActivityItem) {
   switch (item.tool) {
-    case 'browser_open': {
+    case 'browser_open':
+    case 'browser_current': {
       const host = webHost(item.url)
       return item.title ? `${host} — ${item.title}` : host
     }
@@ -232,6 +239,44 @@ function browseItemText(item: BrowseActivityItem) {
 
 function openShot(item: BrowseActivityItem) {
   if (item.screenshot) viewImage(item.screenshot)
+}
+
+const toolSummary = computed(() =>
+  `${t('chat.toolActivity')} · ${t('chat.toolCallCount', { n: toolItems.value.length })}`)
+
+const TOOL_LABEL_KEYS: Record<string, string> = {
+  read_file: 'chat.toolReadFile',
+  write_file: 'chat.toolWriteFile',
+  edit_file: 'chat.toolEditFile',
+  list_files: 'chat.toolListFiles',
+  grep_files: 'chat.toolGrepFiles',
+  glob_files: 'chat.toolGlobFiles',
+  execute: 'chat.toolExecute',
+  view_image: 'chat.toolViewImage',
+  generate_image: 'chat.toolGenerateImage',
+  schedule_task: 'chat.toolScheduleTask',
+  list_scheduled_tasks: 'chat.toolListTasks',
+  update_scheduled_task: 'chat.toolUpdateTask',
+  cancel_scheduled_task: 'chat.toolCancelTask',
+  list_skills: 'chat.toolListSkills',
+  install_skill: 'chat.toolInstallSkill',
+  delegate: 'chat.toolDelegate',
+  create_team: 'chat.toolCreateTeam',
+  add_member: 'chat.toolAddMember',
+  list_team: 'chat.toolListTeam',
+  finish: 'chat.toolFinish',
+  recordToMemory: 'chat.toolRecordMemory',
+  retrieveFromMemory: 'chat.toolRetrieveMemory',
+}
+
+function toolLabel(tool: string) {
+  const key = TOOL_LABEL_KEYS[tool]
+  return key ? t(key) : tool
+}
+
+async function openToolPath(path: string) {
+  const err = await openLocalPath(path)
+  if (err) showToast(err)
 }
 
 </script>
@@ -343,6 +388,30 @@ function openShot(item: BrowseActivityItem) {
               @click="openShot(item)"
             />
             <span v-if="item.ok === false" class="wa-err">{{ item.error || t('chat.webActivityFail') }}</span>
+          </li>
+        </ul>
+      </div>
+      <div v-if="toolItems.length" class="web-activity">
+        <button class="wa-toggle" type="button" @click="taOpen = !taOpen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L15 12l-3-3 2.7-2.7z" />
+          </svg>
+          <span class="wa-summary">{{ toolSummary }}</span>
+          <svg class="wa-caret" :class="{ open: taOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <ul v-if="taOpen" class="wa-list">
+          <li v-for="(item, idx) in toolItems" :key="idx" :class="{ fail: item.ok === false }">
+            <span class="wa-kind">{{ toolLabel(item.tool) }}</span>
+            <a
+              v-if="item.openPath"
+              class="wa-text link"
+              :title="`${item.target}（${t('chat.toolOpenHint')}）`"
+              @click.prevent="openToolPath(item.openPath)"
+            >{{ item.target }}</a>
+            <span v-else-if="item.target" class="wa-text" :title="item.target">{{ item.target }}</span>
+            <span v-if="item.ok === false" class="wa-err">{{ t('chat.toolCallFail') }}</span>
           </li>
         </ul>
       </div>
@@ -543,6 +612,15 @@ function openShot(item: BrowseActivityItem) {
       .wa-text {
         min-width: 0;
         word-break: break-all;
+
+        &.link {
+          color: $primary-color;
+          cursor: pointer;
+
+          &:hover {
+            text-decoration: underline;
+          }
+        }
 
         a {
           color: $primary-color;

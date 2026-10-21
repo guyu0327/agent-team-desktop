@@ -181,6 +181,10 @@ const BROWSE_LABEL_KEYS: Record<string, string> = {
   browser_screenshot: 'chat.browserToolShot',
   browser_back: 'chat.browserToolBack',
   browser_close: 'chat.browserToolClose',
+  browser_current: 'chat.browserToolCurrent',
+  browser_refresh: 'chat.browserToolRefresh',
+  browser_tabs: 'chat.browserToolTabs',
+  browser_select_tab: 'chat.browserToolSelectTab',
 }
 
 const browseTip = computed(() => {
@@ -192,6 +196,45 @@ const browseTip = computed(() => {
   if (a.ok === false) return t('chat.browserFailed')
   return t('chat.browserDone', { action })
 })
+
+/** 实时通用工具调用提示（本会话最近一次文件/命令/技能等工具执行） */
+const toolActivity = computed(() => conversationStore.toolActivityByConv[props.id] ?? null)
+
+const toolTip = computed(() => {
+  const a = toolActivity.value
+  if (!a) return null
+  const key = TOOL_LABEL_KEYS[a.tool]
+  const action = key ? t(key) : a.tool
+  if (a.phase === 'start') return t('chat.toolWorking', { action })
+  if (a.ok === false) return t('chat.toolFailed')
+  const target = a.target && a.target.length > 50 ? `${a.target.slice(0, 50)}…` : a.target
+  return target ? t('chat.toolDoneTarget', { action, target }) : t('chat.toolDone', { action })
+})
+
+const TOOL_LABEL_KEYS: Record<string, string> = {
+  read_file: 'chat.toolReadFile',
+  write_file: 'chat.toolWriteFile',
+  edit_file: 'chat.toolEditFile',
+  list_files: 'chat.toolListFiles',
+  grep_files: 'chat.toolGrepFiles',
+  glob_files: 'chat.toolGlobFiles',
+  execute: 'chat.toolExecute',
+  view_image: 'chat.toolViewImage',
+  generate_image: 'chat.toolGenerateImage',
+  schedule_task: 'chat.toolScheduleTask',
+  list_scheduled_tasks: 'chat.toolListTasks',
+  update_scheduled_task: 'chat.toolUpdateTask',
+  cancel_scheduled_task: 'chat.toolCancelTask',
+  list_skills: 'chat.toolListSkills',
+  install_skill: 'chat.toolInstallSkill',
+  delegate: 'chat.toolDelegate',
+  create_team: 'chat.toolCreateTeam',
+  add_member: 'chat.toolAddMember',
+  list_team: 'chat.toolListTeam',
+  finish: 'chat.toolFinish',
+  recordToMemory: 'chat.toolRecordMemory',
+  retrieveFromMemory: 'chat.toolRetrieveMemory',
+}
 
 // 消息气泡右键菜单（仅气泡本体）：imgSrc 非空表示右键点在气泡内的图片上，额外提供复制图片
 const msgCtx = ref<{ x: number; y: number; msg: Message; imgSrc: string | null } | null>(null)
@@ -507,12 +550,14 @@ function senderBadge(msg: Message): string | undefined {
 }
 
 /** 思考中指示条：发出消息即显示；reply_pending 预告的思考窗口（含接龙/依次回复的
- *  间隔期）持续显示；某位成员的占位气泡出现（reply_start）后由气泡内打字点接管 */
+ *  间隔期）持续显示；气泡正在流正文时由气泡内打字点接管；多段回复的间隙（上一段
+ *  已说完、智能体还在执行工具/酝酿下一段）思考条回归，避免两不管的静默真空 */
 const showThinking = computed(() => {
   if (!conversationStore.isTyping(props.id)) return false
   if (conversationStore.pendingReplyByConv[props.id]) return true
   const last = messages.value[messages.value.length - 1]
-  return !(last && last.senderType === 'agent')
+  if (!last || last.senderType !== 'agent') return true
+  return conversationStore.activeMsgIdByConv[props.id] !== last.id
 })
 
 /** 思考中的智能体：优先「即将发言」的成员（接龙/依次回复的间隔期），单聊回落会话对象，
@@ -945,6 +990,12 @@ function onKeydown(e: KeyboardEvent) {
             <path d="M3 8h18M8 21h8" />
           </svg>
           <span class="text">{{ browseTip }}</span>
+        </div>
+        <div v-if="toolTip" class="web-activity-tip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L3 18l3 3 5.7-5.7a4.5 4.5 0 0 0 6-6L15 12l-3-3 2.7-2.7z" />
+          </svg>
+          <span class="text">{{ toolTip }}</span>
         </div>
         <div v-if="messages.length === 0" class="empty">{{ t('chat.emptyMsg') }}</div>
       </div>

@@ -41,12 +41,22 @@ const isImage = computed(() => !!preset.value && preset.value.protocol !== 'open
 const metaRows = computed(() => {
   const p = preset.value
   if (!p) return []
-  return [
+  const rows = [
     { label: t('models.typeLabel'), value: PROTOCOL_LABELS.value[p.protocol] ?? p.protocol, warn: false },
     { label: t('models.apiLabel'), value: p.baseUrl, warn: false },
     { label: t('models.keyLabel'), value: p.hasKey ? t('models.keyConfigured') : t('models.keyMissing'), warn: !p.hasKey },
-    { label: t('models.remarkLabel'), value: p.remark || t('contact.notSet'), warn: false },
   ]
+  if (p.protocol === 'openai-chat') {
+    const effort = p.reasoningEffort ?? ''
+    const labels: Record<string, string> = {
+      low: t('presetForm.reasoningLow'),
+      medium: t('presetForm.reasoningMedium'),
+      high: t('presetForm.reasoningHigh'),
+    }
+    rows.push({ label: t('presetForm.reasoningLabel'), value: labels[effort] ?? t('presetForm.reasoningDefault'), warn: false })
+  }
+  rows.push({ label: t('models.remarkLabel'), value: p.remark || t('contact.notSet'), warn: false })
+  return rows
 })
 
 const usingAgents = computed(() => {
