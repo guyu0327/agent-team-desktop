@@ -7,8 +7,9 @@ import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { stopOrchestration } from '@/api/conversation'
-import type { Agent, Message, OpRequest, ScheduledTask } from '@/types'
+import type { Agent, AskRequest, Message, OpRequest, ScheduledTask } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
+import AskCard from '@/components/common/AskCard.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import {
@@ -162,7 +163,18 @@ const OP_TITLES = computed<Record<OpRequest['opType'], string>>(() => ({
   edit: t('chat.opEdit'),
   shell: t('chat.opShell'),
   browser: t('chat.opBrowser'),
+    computer: t('chat.opComputer'),
 }))
+
+const pendingAsks = computed(() => conversationStore.pendingAsks(props.id))
+
+async function answerAsk(ask: AskRequest, text: string) {
+  try {
+    await conversationStore.answerAskCard(props.id, ask, text)
+  } catch (err) {
+    alertAction(err instanceof Error ? err.message : t('common.opFailed'))
+  }
+}
 
 const configTip = computed(() => {
   const agent = singleAgent.value
@@ -302,6 +314,12 @@ watch(
 
 watch(
   () => [visibleMessages.value.length, visibleMessages.value[visibleMessages.value.length - 1]?.content] as const,
+  () => scrollToBottom(),
+)
+
+// 思考条渲染在滚动容器内消息之后，出现或增长时同样贴底跟随；任务回合的工具间隙全靠它表明没卡住
+watch(
+  () => [showThinking.value, thinkingText.value] as const,
   () => scrollToBottom(),
 )
 
@@ -605,6 +623,10 @@ async function onMoreSelect(key: string) {
           <button class="op-btn once" @click="decideOp(r, 'once')">{{ t('chat.opAllowOnce') }}</button>
         </div>
       </div>
+    </div>
+
+    <div v-if="pendingAsks.length > 0" class="ask-requests">
+      <AskCard v-for="a in pendingAsks" :key="a.requestId" :ask="a" @answer="answerAsk" />
     </div>
 
     <TaskFormModal
@@ -1082,6 +1104,18 @@ async function onMoreSelect(key: string) {
     opacity: 1;
     transform: scale(1.1);
   }
+}
+
+.ask-requests {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  border-top: 1px solid rgba($primary-color, 0.25);
+  background: rgba($primary-color, 0.06);
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .op-requests {

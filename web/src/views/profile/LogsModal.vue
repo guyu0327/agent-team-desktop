@@ -20,6 +20,7 @@ const LOG_TYPES = computed<{ value: string; label: string }[]>(() => [
   { value: 'error', label: t('logs.typeError') },
   { value: 'op_request', label: t('logs.typeOpRequest') },
   { value: 'op_decision', label: t('logs.typeOpDecision') },
+  { value: 'ask_user', label: t('logs.typeAskUser') },
   { value: 'coordination', label: t('logs.typeCoordination') },
   { value: 'discussion', label: t('logs.typeDiscussion') },
   { value: 'image', label: t('logs.typeImage') },

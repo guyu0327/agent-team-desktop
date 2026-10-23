@@ -205,6 +205,7 @@ const BROWSE_TOOL_KEYS: Record<string, string> = {
   browser_select: 'chat.browserToolSelect',
   browser_scroll: 'chat.browserToolScroll',
   browser_screenshot: 'chat.browserToolShot',
+  browser_snapshot: 'chat.browserToolSnapshot',
   browser_back: 'chat.browserToolBack',
   browser_close: 'chat.browserToolClose',
   browser_current: 'chat.browserToolCurrent',
@@ -231,6 +232,7 @@ function browseItemText(item: BrowseActivityItem) {
     case 'browser_click':
     case 'browser_type':
     case 'browser_select':
+    case 'browser_snapshot':
       return item.ref ?? ''
     default:
       return ''
@@ -267,6 +269,11 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   finish: 'chat.toolFinish',
   recordToMemory: 'chat.toolRecordMemory',
   retrieveFromMemory: 'chat.toolRetrieveMemory',
+  computer_screenshot: 'chat.computerToolShot',
+  computer_click: 'chat.computerToolClick',
+  computer_key: 'chat.computerToolKey',
+  computer_type: 'chat.computerToolType',
+  ask_user: 'chat.toolAskUser',
 }
 
 function toolLabel(tool: string) {

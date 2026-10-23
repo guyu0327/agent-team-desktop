@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { t } from '@/i18n'
-import type { Attachment, Conversation, Message, OpRequest } from '@/types'
+import type { AskRequest, Attachment, Conversation, Message, OpRequest } from '@/types'
 import {
   addMembers,
+  answerAsk,
   archiveConversation as apiArchive,
   createGroup as apiCreateGroup,
   createSingle,
@@ -59,6 +60,8 @@ export const useConversationStore = defineStore('conversation', () => {
   const toolActivityByConv = ref<Record<string, ToolActivityEvent | null>>({})
   /** 会话 -> 待用户决定的受控操作审批请求（智能体调用 write/edit/execute 时产生） */
   const opRequestsByConv = ref<Record<string, OpRequest[]>>({})
+  /** 会话 -> 待回答的智能体提问（ask_user，逐个弹卡；回答后移除，AI 继续该回合） */
+  const asksByConv = ref<Record<string, AskRequest[]>>({})
   /** 会话 -> 即将发言的智能体（reply_pending 到 reply_start 的思考窗口，独立思考条据此显示是谁） */
   const pendingReplyByConv = ref<Record<string, string>>({})
   /** 会话 -> 思考过程流文本（thinking_delta，气泡未打开的思考窗口期在思考条内展示；reply_start/回合结束清除；不落库不重放） */
@@ -116,8 +119,35 @@ export const useConversationStore = defineStore('conversation', () => {
     opRequestsByConv.value[e.conversationId] = list
   }
 
+  function pendingAsks(conversationId: string): AskRequest[] {
+    return asksByConv.value[conversationId] ?? []
+  }
+
+  function onAskUser(e: AskRequest) {
+    const list = asksByConv.value[e.conversationId] ?? []
+    if (!list.some((a) => a.requestId === e.requestId)) list.push(e)
+    asksByConv.value[e.conversationId] = list
+  }
+
+  /** 回答提问：答案作为 ask_user 工具结果返回给 AI，该回合无缝继续 */
+  async function answerAskCard(conversationId: string, ask: AskRequest, answer: string) {
+    try {
+      return await answerAsk(conversationId, ask.requestId, answer)
+    } finally {
+      const list = asksByConv.value[conversationId]
+      if (!list) return
+      const remaining = list.filter((a) => a.requestId !== ask.requestId)
+      if (remaining.length > 0) asksByConv.value[conversationId] = remaining
+      else delete asksByConv.value[conversationId]
+    }
+  }
+
   function clearOpRequests(conversationId: string) {
     delete opRequestsByConv.value[conversationId]
+  }
+
+  function clearAsks(conversationId: string) {
+    delete asksByConv.value[conversationId]
   }
 
   /**
@@ -345,8 +375,9 @@ export const useConversationStore = defineStore('conversation', () => {
       },
       onCoordinationEnd: (e) => {
         delete orchestratingByConv.value[e.conversationId]
-        // 协作结束时后端已终止/唤醒全部审批等待，残留卡片均已失效
+        // 协作结束时后端已终止/唤醒全部审批与提问等待，残留卡片均已失效
         clearOpRequests(e.conversationId)
+        clearAsks(e.conversationId)
       },
       onDiscussionStart: (e) => {
         discussingByConv.value[e.conversationId] = true
@@ -355,8 +386,10 @@ export const useConversationStore = defineStore('conversation', () => {
       onDiscussionEnd: (e) => {
         delete discussingByConv.value[e.conversationId]
         clearOpRequests(e.conversationId)
+        clearAsks(e.conversationId)
       },
       onOpRequest: (e) => onOpRequest(e),
+      onAskUser: (e) => onAskUser(e),
       onReplyPending: (e) => {
         pendingReplyByConv.value[e.conversationId] = e.agentId
       },
@@ -585,6 +618,8 @@ export const useConversationStore = defineStore('conversation', () => {
     thinkingByMsg,
     activeMsgIdByConv,
     pendingOpRequests,
+    pendingAsks,
+    answerAskCard,
     decideOpRequest,
     clearOpRequests,
     loadConversations,

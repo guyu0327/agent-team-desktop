@@ -101,7 +101,9 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  // 确认/提示弹窗是跨弹窗裁决者：须高于一切业务弹窗（设置 100、日志/记忆 210），
+  // 低于应用退出遮罩（400）、Toast（500）与右键菜单（1000）；曾在记忆弹窗下被挡
+  z-index: 300;
 }
 
 .dialog-card {

@@ -9,8 +9,9 @@ import { alertAction, confirmAction } from '@/composables/confirm'
 import { showSettings } from '@/composables/settingsModal'
 import { stopOrchestration } from '@/api/conversation'
 import { getWechatStatus, updateWechatSettings, type WechatStatus } from '@/api/wechat'
-import type { Agent, Attachment, Message, OpRequest } from '@/types'
+import type { Agent, AskRequest, Attachment, Message, OpRequest } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
+import AskCard from '@/components/common/AskCard.vue'
 import FileGrantsPopover from '@/components/common/FileGrantsPopover.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ChatMenu from './components/ChatMenu.vue'
@@ -179,6 +180,7 @@ const BROWSE_LABEL_KEYS: Record<string, string> = {
   browser_select: 'chat.browserToolSelect',
   browser_scroll: 'chat.browserToolScroll',
   browser_screenshot: 'chat.browserToolShot',
+  browser_snapshot: 'chat.browserToolSnapshot',
   browser_back: 'chat.browserToolBack',
   browser_close: 'chat.browserToolClose',
   browser_current: 'chat.browserToolCurrent',
@@ -299,7 +301,18 @@ const OP_TITLES = computed<Record<OpRequest['opType'], string>>(() => ({
   edit: t('chat.opEdit'),
   shell: t('chat.opShell'),
   browser: t('chat.opBrowser'),
+  computer: t('chat.opComputer'),
 }))
+
+const pendingAsks = computed(() => conversationStore.pendingAsks(props.id))
+
+async function answerAsk(ask: AskRequest, text: string) {
+  try {
+    await conversationStore.answerAskCard(props.id, ask, text)
+  } catch (err) {
+    alertAction(err instanceof Error ? err.message : t('common.opFailed'))
+  }
+}
 
 const configTip = computed(() => {
   const agent = singleAgent.value
@@ -551,9 +564,12 @@ function senderBadge(msg: Message): string | undefined {
 
 /** 思考中指示条：发出消息即显示；reply_pending 预告的思考窗口（含接龙/依次回复的
  *  间隔期）持续显示；气泡正在流正文时由气泡内打字点接管；多段回复的间隙（上一段
- *  已说完、智能体还在执行工具/酝酿下一段）思考条回归，避免两不管的静默真空 */
+ *  已说完、智能体在酝酿下一段）思考条回归。工具执行间隙除外：下方工具气泡已在
+ *  指示活动，思考条再亮打字点会像「一直在思考」；下一段的实时思考文本出现时才
+ *  回归，此时展示的正是思考内容本身 */
 const showThinking = computed(() => {
   if (!conversationStore.isTyping(props.id)) return false
+  if ((webTip.value || browseTip.value || toolTip.value) && !thinkingText.value) return false
   if (conversationStore.pendingReplyByConv[props.id]) return true
   const last = messages.value[messages.value.length - 1]
   if (!last || last.senderType !== 'agent') return true
@@ -636,6 +652,13 @@ watch(
 
 watch(
   () => [messages.value.length, messages.value[messages.value.length - 1]?.content] as const,
+  () => scrollToBottom(),
+)
+
+// 思考条/行动提示条也在滚动容器内（渲染在消息之后），出现或增长时同样贴底跟随：
+// 正文没出来前它们是「回合还在动」的唯一可见信号，被挡在视口下会显得像卡住了
+watch(
+  () => [showThinking.value, thinkingText.value, webTip.value, browseTip.value, toolTip.value] as const,
   () => scrollToBottom(),
 )
 
@@ -1039,6 +1062,10 @@ function onKeydown(e: KeyboardEvent) {
           <button class="op-btn once" @click="decideOp(r, 'once')">{{ t('chat.opAllowOnce') }}</button>
         </div>
       </div>
+    </div>
+
+    <div v-if="pendingAsks.length > 0" class="ask-requests">
+      <AskCard v-for="a in pendingAsks" :key="a.requestId" :ask="a" @answer="answerAsk" />
     </div>
 
     <footer v-if="!isWechat" ref="inputAreaRef" class="input-area" :class="{ dragging: isDragging, resizing }"
@@ -1641,6 +1668,18 @@ function onKeydown(e: KeyboardEvent) {
     opacity: 1;
     transform: scale(1.1);
   }
+}
+
+.ask-requests {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  padding: $spacing-sm $spacing-lg;
+  border-top: 1px solid rgba($primary-color, 0.25);
+  background: rgba($primary-color, 0.06);
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .op-requests {

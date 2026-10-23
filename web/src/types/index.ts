@@ -266,13 +266,23 @@ export interface WorkspaceSettings {
 export interface OpRequest {
   requestId: string
   conversationId: string
-  opType: 'write' | 'edit' | 'shell' | 'browser'
+  opType: 'write' | 'edit' | 'shell' | 'browser' | 'computer'
   agentId: string
   agentName: string
   /** 操作目标：文件路径（shell 命令为 null） */
   target: string | null
   /** 操作详情：写入内容 / 修改前后对照 / 命令文本 */
   detail: string | null
+}
+
+/** 智能体提问：一次一个问题，逐个弹卡；选项 ≤3 个，「其他」自由输入由前端自动附加 */
+export interface AskRequest {
+  requestId: string
+  conversationId: string
+  agentId: string
+  agentName: string
+  question: string
+  options: string[]
 }
 
 /** 实时语音识别服务：讯飞流式听写的鉴权三参（PUT 请求体，密钥留空 = 保持不变） */

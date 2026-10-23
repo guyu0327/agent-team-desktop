@@ -1,4 +1,4 @@
-import type { Attachment, BrowseActivityItem, Conversation, Message, OpRequest, ToolActivityItem, WebActivityItem } from '@/types'
+import type { AskRequest, Attachment, BrowseActivityItem, Conversation, Message, OpRequest, ToolActivityItem, WebActivityItem } from '@/types'
 import { t } from '@/i18n'
 import { API_TOKEN, apiHeaders, apiUrl } from './base'
 import { request } from './http'
@@ -119,6 +119,11 @@ export function decideOperation(
   return request(`/conversations/${id}/op-grant`, { method: 'POST', body: { requestId, decision } })
 }
 
+/** 提问卡片回答：answer 为所选项文本或「其他」自由输入；applied=false 表示问题已超时失效 */
+export function answerAsk(id: string, requestId: string, answer: string): Promise<{ applied: boolean }> {
+  return request(`/conversations/${id}/ask-answer`, { method: 'POST', body: { requestId, answer } })
+}
+
 export function listMessages(id: string, before?: number, limit = 50, taskId?: string): Promise<MessagePage> {
   const params = new URLSearchParams()
   if (before !== undefined) params.set('before', String(before))
@@ -150,6 +155,8 @@ export interface SendStreamHandlers {
   onDiscussionEnd?(e: { conversationId: string }): void
   /** 受控操作审批请求（写入/修改/执行命令时触发，智能体原地等待决定） */
   onOpRequest?(e: OpRequest): void
+  /** 智能体提问卡片（ask_user）：插入消息流等待用户作答，AI 暂停在该问题上 */
+  onAskUser?(e: AskRequest): void
   /** 文生图开始/结束（generate_image 执行窗口，按会话展示生成动画） */
   onImageStart?(e: { agentId: string; agentName: string; conversationId: string }): void
   onImageEnd?(e: { conversationId: string }): void
@@ -273,6 +280,9 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
     case 'op_request':
       handlers.onOpRequest?.(payload as OpRequest)
       break
+    case 'ask_user':
+      handlers.onAskUser?.(payload as AskRequest)
+      break
     case 'image_start':
       handlers.onImageStart?.(payload)
       break
@@ -300,7 +310,7 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
 const STREAM_EVENTS = [
   'user_message', 'reply_start', 'reply_pending', 'thinking_delta', 'delta', 'reply_end', 'reply_error',
   'conversation_created', 'conversation_updated', 'coordination_start', 'coordination_end',
-  'discussion_start', 'discussion_end', 'op_request', 'image_start', 'image_end',
+  'discussion_start', 'discussion_end', 'op_request', 'ask_user', 'image_start', 'image_end',
   'web_activity', 'browser_activity', 'tool_activity', 'system_note', 'done',
 ] as const
 

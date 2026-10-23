@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
 import { getCoordinationLimits, updateCoordinationLimits } from '@/api/settings'
 import { getContextCompression, updateContextCompression } from '@/api/settings'
-import { getBrowserSettings, updateBrowserSettings } from '@/api/settings'
+import { getBrowserSettings, updateBrowserSettings, getComputerSettings, updateComputerSettings } from '@/api/settings'
 import { getAsrStreamSettings, updateAsrStreamSettings } from '@/api/asr'
 import { clearAnySearchSettings, getAnySearchSettings, updateAnySearchSettings } from '@/api/anysearch'
 import type { AnySearchStatus, AsrStreamStatus } from '@/types'
@@ -163,6 +163,8 @@ const savedBrowserWhitelist = ref<string[]>([])
 const browserNewDomain = ref('')
 const browserSaving = ref(false)
 const browserFeedback = ref<{ ok: boolean; text: string } | null>(null)
+const computerEnabled = ref(false)
+const computerBusy = ref(false)
 
 const browserDirty = computed(
   () =>
@@ -330,6 +332,11 @@ onMounted(async () => {
   } catch (e) {
     browserFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.loadFailed') }
   }
+  try {
+    computerEnabled.value = (await getComputerSettings()).enabled
+  } catch {
+    /* 读取失败保持默认关闭 */
+  }
   if (desktop.getLoginItem) {
     try {
       launchAtLogin.value = await desktop.getLoginItem()
@@ -495,6 +502,29 @@ async function toggleLaunchAtLogin() {
     launchBusy.value = false
   }
 }
+/** 本机键鼠操控：点按即生效；开启前弹确认框明示后果 */
+async function toggleComputer() {
+  if (computerBusy.value) return
+  const next = !computerEnabled.value
+  if (next) {
+    const ok = await confirmAction({
+      title: t('settings.computerConfirmTitle'),
+      message: t('settings.computerConfirmMsg'),
+      confirmText: t('settings.computerConfirmOk'),
+    })
+    if (!ok) return
+  }
+  computerBusy.value = true
+  try {
+    const s = await updateComputerSettings(next)
+    computerEnabled.value = s.enabled
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : t('settings.saveFailed'))
+  } finally {
+    computerBusy.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -808,6 +838,26 @@ async function toggleLaunchAtLogin() {
       </section>
 
       <section class="section">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'computer' }" @click="toggleSection('computer')">
+          {{ t('settings.computer') }}
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </h3>
+        <div v-show="openSection === 'computer'" class="section-body">
+          <p class="hint">{{ t('settings.computerHint') }}</p>
+
+          <button class="setting-row" :disabled="computerBusy" @click="toggleComputer">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.computerEnabled') }}</span>
+              <span class="row-desc">{{ t('settings.computerEnabledDesc') }}</span>
+            </span>
+            <span class="switch" :class="{ on: computerEnabled }"><span class="knob"></span></span>
+          </button>
+        </div>
+      </section>
+
+      <section class="section">
         <h3 class="section-title">{{ t('settings.data') }}</h3>
         <p class="hint">{{ t('settings.dataHint') }}</p>
 
@@ -902,11 +952,20 @@ async function toggleLaunchAtLogin() {
   font-weight: 600;
   color: $text-primary;
   margin-bottom: $spacing-sm;
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  // 短竖条标记块标题（比文字矮、垂直居中、圆角）：整行高的 border-left 会快贴到分块分隔线
+  &::before {
+    content: '';
+    width: 3px;
+    height: 12px;
+    border-radius: 2px;
+    background: $primary-color;
+    flex-shrink: 0;
+  }
 
   &.clickable {
-    display: flex;
-    align-items: center;
-    gap: $spacing-xs;
     cursor: pointer;
     user-select: none;
 
