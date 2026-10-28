@@ -7,7 +7,7 @@ import { useAgentStore } from '@/stores/agent'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { markRead } from '@/api/conversation'
 import { exportConversation } from '@/utils/chatExport'
-import { CLAWBOT_AVATAR } from '@/constants/clawbot'
+import { channelConversation } from '@/utils/conversationName'
 import { t } from '@/i18n'
 import SearchBar from '@/components/common/SearchBar.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
@@ -45,8 +45,8 @@ const convCtxItems = computed(() => {
   ]
   if (c.unreadCount > 0) items.push({ key: 'read', label: t('message.markRead') })
   if (c.type === 'group') items.push({ key: 'rename', label: t('message.rename') })
-  // 微信会话不提供"开始新会话"：归档+按智能体新开会产生脱离微信绑定的普通单聊，重置走聊天页菜单
-  else if (c.channel !== 'wechat') items.push({ key: 'newChat', label: t('message.newChat') })
+  // 通道会话（微信/QQ）不提供"开始新会话"：归档+按智能体新开会话会脱离外部绑定，重置走聊天页菜单
+  else if (c.channel !== 'wechat' && c.channel !== 'qq') items.push({ key: 'newChat', label: t('message.newChat') })
   items.push({ key: 'delete', label: c.type === 'group' ? t('message.disband') : t('message.deleteChat'), danger: true })
   return items
 })
@@ -122,8 +122,8 @@ async function saveRename() {
 }
 
 function displayOf(c: Conversation): { name: string; avatar: string } {
-  if (c.channel === 'wechat')
-    return { name: c.wechatPeer ? `${t('chat.wechatBotName')}-${c.wechatPeer}` : t('chat.wechatBotName'), avatar: CLAWBOT_AVATAR }
+  const channel = channelConversation(c)
+  if (channel) return channel
   if (c.type === 'group') return { name: c.name, avatar: '👥' }
   const agent = c.agentId ? agentStore.getById(c.agentId) : undefined
   return { name: agent?.name ?? t('message.deletedAgent'), avatar: agent?.avatar ?? '' }

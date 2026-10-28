@@ -9,15 +9,18 @@ import { alertAction, confirmAction } from '@/composables/confirm'
 import { showSettings } from '@/composables/settingsModal'
 import { stopOrchestration } from '@/api/conversation'
 import { getWechatStatus, updateWechatSettings, type WechatStatus } from '@/api/wechat'
+import { getQqStatus, updateQqSettings, type QqStatus } from '@/api/qq'
 import type { Agent, AskRequest, Attachment, Message, OpRequest } from '@/types'
 import MessageBubble from '@/components/common/MessageBubble.vue'
 import AskCard from '@/components/common/AskCard.vue'
-import FileGrantsPopover from '@/components/common/FileGrantsPopover.vue'
+import SessionGrantsPopover from '@/components/common/SessionGrantsPopover.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ChatMenu from './components/ChatMenu.vue'
 import HistoryPopover from './components/HistoryPopover.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import { formatDividerTime } from '@/utils/time'
+import { channelConversation } from '@/utils/conversationName'
+import { QQ_AVATAR } from '@/constants/channelAvatars'
 import { fsContentUrl, isImagePath } from '@/utils/image'
 import { copyImage, copyText } from '@/utils/clipboard'
 import { showToast } from '@/composables/toast'
@@ -70,10 +73,17 @@ watch(() => conversation.value?.id, () => {
 })
 
 const isWechat = computed(() => conversation.value?.channel === 'wechat')
+const isQq = computed(() => conversation.value?.channel === 'qq')
+const isChannelConv = computed(() => isWechat.value || isQq.value)
 
-// ---------- 微信会话：当前处理智能体展示与切换 ----------
+// ---------- 通道会话（微信/QQ）：当前处理智能体展示与切换 ----------
 const wechatStatus = ref<WechatStatus | null>(null)
+const qqStatus = ref<QqStatus | null>(null)
 const showWechatAgentPop = ref(false)
+
+const channelStatus = computed<WechatStatus | QqStatus | null>(() =>
+  isQq.value ? qqStatus.value : wechatStatus.value,
+)
 
 async function refreshWechatStatus() {
   try {
@@ -83,32 +93,62 @@ async function refreshWechatStatus() {
   }
 }
 
-watch(isWechat, (v) => {
-  if (v) refreshWechatStatus()
-  else showWechatAgentPop.value = false
+async function refreshQqStatus() {
+  try {
+    qqStatus.value = await getQqStatus()
+  } catch {
+    /* 读取失败保持旧值，下次打开重试 */
+  }
+}
+
+watch(isChannelConv, (v) => {
+  if (isQq.value) refreshQqStatus()
+  else if (isWechat.value) refreshWechatStatus()
+  if (!v) showWechatAgentPop.value = false
 }, { immediate: true })
 
 /** 配置为空时按服务端规则（编排者优先）展示实际生效的智能体 */
-const wechatAgent = computed<Agent | null>(() => {
-  const id = wechatStatus.value?.agentId
+const channelAgent = computed<Agent | null>(() => {
+  const id = channelStatus.value?.agentId
   if (id) return agentStore.getById(id) ?? null
   return agentStore.agents.find((a) => a.isOrchestrator) ?? agentStore.agents[0] ?? null
 })
 
-async function setWechatAgent(agentId: string) {
-  const s = wechatStatus.value
-  if (!s) return
-  try {
-    wechatStatus.value = await updateWechatSettings({
-      enabled: s.enabled,
-      agentId,
-      autoWrite: s.autoWrite,
-      autoShell: s.autoShell,
-      maxReplyChars: s.maxReplyChars,
-      roundTimeoutMinutes: s.roundTimeoutMinutes,
-    })
-  } catch {
-    /* 保存失败保持本地原值 */
+async function setChannelAgent(agentId: string) {
+  if (isQq.value) {
+    const s = qqStatus.value
+    if (!s) return
+    try {
+      qqStatus.value = await updateQqSettings({
+        enabled: s.enabled,
+        agentId,
+        autoWrite: s.autoWrite,
+        autoShell: s.autoShell,
+        maxReplyChars: s.maxReplyChars,
+        roundTimeoutMinutes: s.roundTimeoutMinutes,
+        c2cPolicy: s.c2cPolicy,
+        c2cWhitelist: s.c2cWhitelist,
+        groupPolicy: s.groupPolicy,
+        groupWhitelist: s.groupWhitelist,
+      })
+    } catch {
+      /* 保存失败保持本地原值 */
+    }
+  } else {
+    const s = wechatStatus.value
+    if (!s) return
+    try {
+      wechatStatus.value = await updateWechatSettings({
+        enabled: s.enabled,
+        agentId,
+        autoWrite: s.autoWrite,
+        autoShell: s.autoShell,
+        maxReplyChars: s.maxReplyChars,
+        roundTimeoutMinutes: s.roundTimeoutMinutes,
+      })
+    } catch {
+      /* 保存失败保持本地原值 */
+    }
   }
   showWechatAgentPop.value = false
 }
@@ -116,7 +156,8 @@ async function setWechatAgent(agentId: string) {
 const title = computed(() => {
   const conv = conversation.value
   if (!conv) return t('chat.title')
-  if (isWechat.value) return conv.wechatPeer ? `${t('chat.wechatBotName')}-${conv.wechatPeer}` : t('chat.wechatBotName')
+  const channelName = channelConversation(conv)
+  if (channelName) return channelName.name
   if (conv.type === 'group') return conv.name
   const agent = conv.agentId ? agentStore.getById(conv.agentId) : undefined
   return agent?.name ?? t('common.deletedAgent')
@@ -545,11 +586,32 @@ function shouldShowDivider(index: number): boolean {
   return messages.value[index].timestamp - messages.value[index - 1].timestamp > DIVIDER_GAP
 }
 
+/** QQ 会话里从 QQ 侧发来的外部消息（群成员/私聊好友）：气泡同样靠右（与微信通道一致——
+ *  通道对端在右、智能体在左），但保留名字+企鹅头像+角色徽标；'u0' 是旧消息的本地发送占位 */
+function isExternal(msg: Message): boolean {
+  if (msg.senderType !== 'user') return false
+  if (conversation.value?.channel !== 'qq') return false
+  return !(msg.senderId === qqStatus.value?.ownerOpenid
+    || msg.senderId === userStore.user?.id
+    || msg.senderId === 'u0')
+}
+
+/** 自己人消息（不带外部身份标注）：本地发送与机主从 QQ 发来的 */
 function isSelf(msg: Message): boolean {
-  return msg.senderType === 'user'
+  return msg.senderType === 'user' && !isExternal(msg)
+}
+
+/** 平台随事件下发的用户名（author.username）：取 seen 列表里该 openid 最近一次的名字 */
+function qqMemberName(openid: string): string | null {
+  return qqStatus.value?.seen.find((p) => p.openid === openid && p.name)?.name ?? null
 }
 
 function senderInfo(msg: Message): { name: string; avatar?: string } {
+  // 仅外部 user 消息按「用户名（openid）」展示；agent 消息走下方智能体匹配，不吃企鹅头像
+  if (isExternal(msg)) {
+    const name = msg.senderName || qqMemberName(msg.senderId)
+    return { name: name ? `${name}（${msg.senderId}）` : msg.senderId, avatar: QQ_AVATAR }
+  }
   if (isSelf(msg)) {
     return { name: userStore.user?.name ?? t('chat.replySelf'), avatar: userStore.user?.avatar }
   }
@@ -558,7 +620,13 @@ function senderInfo(msg: Message): { name: string; avatar?: string } {
 }
 
 function senderBadge(msg: Message): string | undefined {
-  if (isSelf(msg)) return undefined
+  // QQ 外部成员按群角色标注（群主/管理员），普通成员无徽标；其余走智能体主脑徽标
+  if (isExternal(msg)) {
+    if (msg.senderRole === 'owner') return t('chat.qqOwner')
+    if (msg.senderRole === 'admin') return t('chat.qqAdmin')
+    return undefined
+  }
+  if (msg.senderType === 'user') return undefined
   return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
 }
 
@@ -875,19 +943,19 @@ function onKeydown(e: KeyboardEvent) {
       </span>
       <div class="more-wrap">
         <button
-          v-if="isWechat"
+          v-if="isChannelConv"
           class="wechat-agent-chip"
           :title="t('settings.wechatAgent')"
           @click.stop="showWechatAgentPop = !showWechatAgentPop"
         >
-          <Avatar v-if="wechatAgent" :name="wechatAgent.name" :avatar="wechatAgent.avatar" :size="18" />
-          <span class="chip-name">{{ wechatAgent?.name ?? t('common.deletedAgent') }}</span>
+          <Avatar v-if="channelAgent" :name="channelAgent.name" :avatar="channelAgent.avatar" :size="18" />
+          <span class="chip-name">{{ channelAgent?.name ?? t('common.deletedAgent') }}</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </button>
         <button
-          v-if="!isWechat && conversation?.type === 'single' && conversation?.agentId"
+          v-if="!isChannelConv && conversation?.type === 'single' && conversation?.agentId"
           class="more"
           :title="t('nav.history')"
           @click.stop="showHistory = !showHistory"
@@ -915,17 +983,17 @@ function onKeydown(e: KeyboardEvent) {
           :conversation="conversation"
           @close="menuOpen = false"
         />
-        <!-- 微信会话：处理智能体切换列表（下一条微信消息生效） -->
-        <div v-if="isWechat && showWechatAgentPop" class="wechat-agent-pop" @click.stop>
-          <button class="wa-row" :class="{ on: !wechatStatus?.agentId }" @click="setWechatAgent('')">
+        <!-- 通道会话（微信/QQ）：处理智能体切换列表（下一条外部消息生效） -->
+        <div v-if="isChannelConv && showWechatAgentPop" class="wechat-agent-pop" @click.stop>
+          <button class="wa-row" :class="{ on: !channelStatus?.agentId }" @click="setChannelAgent('')">
             {{ t('settings.wechatAgentAuto') }}
           </button>
           <button
             v-for="a in agentStore.agents"
             :key="a.id"
             class="wa-row"
-            :class="{ on: wechatStatus?.agentId === a.id }"
-            @click="setWechatAgent(a.id)"
+            :class="{ on: channelStatus?.agentId === a.id }"
+            @click="setChannelAgent(a.id)"
           >
             <Avatar :name="a.name" :avatar="a.avatar" :size="22" />
             <span>{{ a.name }}</span>
@@ -956,11 +1024,11 @@ function onKeydown(e: KeyboardEvent) {
           <MessageBubble
             v-else
             :message="msg"
-            :self="isSelf(msg)"
+            :self="msg.senderType === 'user'"
             :sender-name="senderInfo(msg).name"
             :sender-avatar="senderInfo(msg).avatar"
             :badge="senderBadge(msg)"
-            :show-name="(conversation?.type === 'group' || isWechat) && !isSelf(msg)"
+            :show-name="isExternal(msg)"
             :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
             :thinking="conversationStore.thinkingByMsg[msg.id]"
             :mentionable="conversation?.type === 'group' && !isSelf(msg)"
@@ -1068,7 +1136,7 @@ function onKeydown(e: KeyboardEvent) {
       <AskCard v-for="a in pendingAsks" :key="a.requestId" :ask="a" @answer="answerAsk" />
     </div>
 
-    <footer v-if="!isWechat" ref="inputAreaRef" class="input-area" :class="{ dragging: isDragging, resizing }"
+    <footer v-if="!isChannelConv" ref="inputAreaRef" class="input-area" :class="{ dragging: isDragging, resizing }"
       :style="inputHeight != null ? { height: `${inputHeight}px` } : undefined"
       @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave"
       @drop="onDrop"
@@ -1124,7 +1192,7 @@ function onKeydown(e: KeyboardEvent) {
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
           </svg>
         </span>
-        <span class="tool" :title="t('chat.fileGrants')" @click="showGrants = !showGrants">
+        <span class="tool" :title="t('chat.sessionGrants')" @click="showGrants = !showGrants">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" />
             <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
@@ -1161,20 +1229,20 @@ function onKeydown(e: KeyboardEvent) {
         </button>
         <button v-else class="send-btn" :disabled="!draft.trim() && pendingAttachments.length === 0" @click="handleSend">
           {{ t('chat.send') }}
-        </button>
+         </button>
       </div>
 
-      <FileGrantsPopover v-if="showGrants" :conversation-id="props.id" @close="showGrants = false" />
+      <SessionGrantsPopover v-if="showGrants" :conversation-id="props.id" @close="showGrants = false" />
     </footer>
 
-    <!-- 微信会话只读：聊天在微信内进行，桌面端仅作镜像展示 -->
+    <!-- 通道会话只读：聊天在微信/QQ 内进行，桌面端仅作镜像展示 -->
     <footer v-else class="input-area wechat-readonly">
       <div class="wechat-hint">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <rect x="7" y="2" width="10" height="20" rx="2" />
           <path d="M11 18h2" />
         </svg>
-        <span>{{ t('chat.wechatReadOnly') }}</span>
+        <span>{{ isQq ? t('chat.qqReadOnly') : t('chat.wechatReadOnly') }}</span>
       </div>
     </footer>
   </div>

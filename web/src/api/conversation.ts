@@ -1,4 +1,4 @@
-import type { AskRequest, Attachment, BrowseActivityItem, Conversation, Message, OpRequest, ToolActivityItem, WebActivityItem } from '@/types'
+import type { AskRequest, Attachment, BrowseActivityItem, Conversation, Message, OpGrant, OpRequest, ToolActivityItem, WebActivityItem } from '@/types'
 import { t } from '@/i18n'
 import { API_TOKEN, apiHeaders, apiUrl } from './base'
 import { request } from './http'
@@ -117,6 +117,16 @@ export function decideOperation(
   decision: 'once' | 'conversation' | 'deny' | 'whitelist',
 ): Promise<{ applied: boolean }> {
   return request(`/conversations/${id}/op-grant`, { method: 'POST', body: { requestId, decision } })
+}
+
+/** 本会话已授予的工具授权（审批卡片「本会话允许」落库的类型级授权） */
+export function listOpGrants(id: string): Promise<OpGrant[]> {
+  return request(`/conversations/${id}/op-grants`)
+}
+
+/** 撤销本会话某一类工具授权（write/edit/shell/browser/computer），撤销即时生效 */
+export function revokeOpGrant(id: string, opType: OpGrant['opType']): Promise<{ revoked: boolean }> {
+  return request(`/conversations/${id}/op-grants/${opType}`, { method: 'DELETE' })
 }
 
 /** 提问卡片回答：answer 为所选项文本或「其他」自由输入；applied=false 表示问题已超时失效 */

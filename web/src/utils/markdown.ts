@@ -11,8 +11,15 @@ const md = new MarkdownIt({
 const defaultImage = md.renderer.rules.image
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
-  const src = String(token.attrGet('src') ?? '')
+  let src = String(token.attrGet('src') ?? '')
   if (src && !/^(https?:|data:)/i.test(src) && isImagePath(src)) {
+    // markdown-it 解析时已把目标里的反斜杠等字符百分号编码（C:\Users → C:%5CUsers），
+    // 直接透传会给后端造成双重编码，先还原成原始本地路径
+    try {
+      src = decodeURIComponent(src)
+    } catch {
+      // 含裸 % 的非编码路径，保持原样
+    }
     token.attrSet('src', fsContentUrl(src))
   }
   return defaultImage ? defaultImage(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options)

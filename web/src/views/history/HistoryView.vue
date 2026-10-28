@@ -10,9 +10,9 @@ import { showToast } from '@/composables/toast'
 import SearchBar from '@/components/common/SearchBar.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import ConversationItem from '@/views/message/components/ConversationItem.vue'
-import { CLAWBOT_AVATAR } from '@/constants/clawbot'
 import { dayKeyOf, dayLabelOf } from '@/utils/time'
 import { exportConversation } from '@/utils/chatExport'
+import { channelConversation } from '@/utils/conversationName'
 import { t } from '@/i18n'
 
 const route = useRoute()
@@ -33,9 +33,9 @@ onMounted(() => void historyStore.loadArchived())
 watch(agentFilter, (id) => void historyStore.loadArchived(id || undefined))
 
 function displayOf(c: Conversation): { name: string; avatar: string } {
-  // 微信归档固定以机器人名义展示（切过智能体后 agentId 已不代表最初处理者）；有好友标识时加后缀区分
-  if (c.channel === 'wechat')
-    return { name: c.wechatPeer ? `${t('chat.wechatBotName')}-${c.wechatPeer}` : t('chat.wechatBotName'), avatar: CLAWBOT_AVATAR }
+  // 通道归档（微信/QQ）固定以机器人名义展示（切过智能体后 agentId 已不代表最初处理者）
+  const channel = channelConversation(c)
+  if (channel) return channel
   if (c.type === 'group') return { name: c.name, avatar: '👥' }
   // 任务归档以任务名为主标题，头像沿用所属智能体
   if (c.category === 'task') {
@@ -103,13 +103,13 @@ const ctx = ref<{ x: number; y: number; conv: Conversation } | null>(null)
 /** 右键菜单与归档详情页「⋯」一致：导出 + 恢复任务/继续聊天 + 删除，顺序按 不影响数据→更新→删除 */
 const ctxItems = computed(() => {
   if (!ctx.value) return []
-  // 任务归档可恢复定时任务；普通归档可继续聊天；微信归档不可恢复聊天
+  // 任务归档可恢复定时任务；普通归档可继续聊天；通道归档（微信/QQ）不可恢复聊天
   const items: { key: string; label: string; danger?: boolean }[] = [
     { key: 'export', label: t('chat.exportChat') },
   ]
   if (ctx.value.conv.category === 'task') {
     items.push({ key: 'restore-task', label: t('history.restoreTask') })
-  } else if (ctx.value.conv.channel !== 'wechat') {
+  } else if (ctx.value.conv.channel !== 'wechat' && ctx.value.conv.channel !== 'qq') {
     items.push({ key: 'continue', label: t('history.continueChat') })
   }
   items.push({ key: 'delete', label: t('common.delete'), danger: true })

@@ -456,6 +456,7 @@ async function openToolPath(path: string) {
     align-self: flex-end;
 
     .bubble {
+      align-self: flex-end;
       background: $bg-bubble-self;
       color: $text-white;
       border-radius: $radius-md 2px $radius-md $radius-md;
@@ -684,6 +685,9 @@ async function openToolPath(path: string) {
 }
 
 .bubble {
+  /* 贴内容宽度而非拉伸占满列：发送者标签（长 openid 不换行）会把列撑宽，短消息不该跟着变宽 */
+  align-self: flex-start;
+  max-width: 100%;
   padding: 10px $spacing-md;
   background: $bg-bubble-other;
   color: $text-primary;

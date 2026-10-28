@@ -82,10 +82,14 @@ export interface Conversation {
   unreadCount: number
   /** 历史会话归档时间：非空表示已归档（仅历史会话接口返回） */
   archivedTime?: number | null
-  /** 来源通道：wechat=iLink 微信会话（桌面端只读，头像/名称固定为 ClawBot） */
+  /** 来源通道：wechat=iLink 微信会话、qq=QQ 官方机器人会话（桌面端只读） */
   channel?: string | null
-  /** 微信好友短标识：非空时显示为「微信ClawBot-xxxx」区分不同好友的会话 */
+  /** 微信好友短标识：会话按好友建，列表里显示为「微信」 */
   wechatPeer?: string | null
+  /** QQ 对端短标识：私聊=用户 openid 尾 8 位，群聊=群 openid 尾 8 位，显示为「QQ · 尾8」 */
+  qqPeer?: string | null
+  /** QQ 会话类型：c2c=私聊 | group=群聊（决定列表名前缀「QQ」/「QQ群」） */
+  qqKind?: 'c2c' | 'group' | null
 }
 
 /** 消息/授权共用的附件信息：path 为服务器上的真实绝对路径；image 类型可直接展示并交给视觉模型 */
@@ -135,6 +139,10 @@ export interface Message {
   conversationId: string
   senderType: 'user' | 'agent' | 'system'
   senderId: string
+  /** 外部通道发送者昵称（QQ 为平台随事件下发的 author.username），本地消息为 null */
+  senderName?: string | null
+  /** 外部通道发送者群角色（QQ 为 author.member_role：owner/admin），普通成员为空 */
+  senderRole?: 'owner' | 'admin' | string | null
   content: string
   attachments?: Attachment[]
   timestamp: number
@@ -210,6 +218,12 @@ export interface FileGrant {
   path: string
   type: 'file' | 'dir' | 'image'
   name: string
+  grantedAt: number
+}
+
+/** 会话已授予的工具授权（审批卡片「本会话允许」落库的类型级授权） */
+export interface OpGrant {
+  opType: 'write' | 'edit' | 'shell' | 'browser' | 'computer'
   grantedAt: number
 }
 

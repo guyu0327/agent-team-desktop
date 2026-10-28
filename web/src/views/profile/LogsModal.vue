@@ -28,6 +28,7 @@ const LOG_TYPES = computed<{ value: string; label: string }[]>(() => [
   { value: 'task', label: t('logs.typeTask') },
   { value: 'reply', label: t('logs.typeReply') },
   { value: 'wechat', label: t('logs.typeWechat') },
+  { value: 'qq', label: t('logs.typeQq') },
   { value: 'api_error', label: t('logs.typeApiError') },
 ])
 

@@ -9,6 +9,7 @@ import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { resetGroupConversation } from '@/api/conversation'
 import { resetWechatConversation } from '@/api/wechat'
+import { resetQqConversation } from '@/api/qq'
 import { exportConversation } from '@/utils/chatExport'
 import Avatar from '@/components/common/Avatar.vue'
 import { t } from '@/i18n'
@@ -22,6 +23,8 @@ const conversationStore = useConversationStore()
 const presetStore = useModelPresetStore()
 
 const isWechat = computed(() => props.conversation.channel === 'wechat')
+const isQq = computed(() => props.conversation.channel === 'qq')
+const isChannelConv = computed(() => isWechat.value || isQq.value)
 
 const rootEl = ref<HTMLElement>()
 
@@ -93,8 +96,8 @@ async function deleteChat() {
   }
 }
 
-/** 微信会话重置：旧会话归档进历史（不可恢复聊天），绑定迁移到全新会话，消息无缝流入 */
-async function resetWechat() {
+/** 通道会话重置（微信/QQ）：旧会话归档进历史（不可恢复聊天），绑定迁移到全新会话，消息无缝流入 */
+async function resetChannel() {
   const ok = await confirmAction({
     title: t('chat.resetSession'),
     message: t('chat.resetSessionMsg'),
@@ -103,7 +106,9 @@ async function resetWechat() {
   if (!ok) return
   emit('close')
   try {
-    const res = await resetWechatConversation(props.conversation.id)
+    const res = isQq.value
+      ? await resetQqConversation(props.conversation.id)
+      : await resetWechatConversation(props.conversation.id)
     await conversationStore.loadConversations()
     router.push(`/chat/${res.conversationId}`)
   } catch (e) {
@@ -335,7 +340,7 @@ function openAgent(agent: Agent) {
         </svg>
         {{ conversation.pinned ? t('chat.unpin') : t('chat.pin') }}
       </button>
-      <button v-if="isWechat" class="menu-item" @click="resetWechat">
+      <button v-if="isChannelConv" class="menu-item" @click="resetChannel">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path
             d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"

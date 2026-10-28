@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Conversation, Message } from '@/types'
 import { listMessages } from '@/api/conversation'
+import { getQqStatus, type QqStatus } from '@/api/qq'
 import { restoreArchivedTask } from '@/api/tasks'
 import { useHistoryStore } from '@/stores/history'
 import { useAgentStore } from '@/stores/agent'
@@ -14,6 +15,8 @@ import ContextMenu from '@/components/common/ContextMenu.vue'
 import { copyImage, copyText } from '@/utils/clipboard'
 import { formatDividerTime } from '@/utils/time'
 import { exportConversation } from '@/utils/chatExport'
+import { channelConversation } from '@/utils/conversationName'
+import { QQ_AVATAR } from '@/constants/channelAvatars'
 import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
@@ -33,11 +36,22 @@ const restoring = ref(false)
 
 const conv = computed<Conversation | undefined>(() => historyStore.archived.find((c) => c.id === props.id))
 
+/** 机主 openid：QQ 会话里区分哪些 user 消息是自己发的 */
+const qqStatus = ref<QqStatus | null>(null)
+
+async function refreshQqStatus() {
+  try {
+    qqStatus.value = await getQqStatus()
+  } catch {
+    /* 读取失败保持旧值 */
+  }
+}
+
 const title = computed(() => {
   if (!conv.value) return t('history.title')
-  // 微信归档固定显示机器人名（切过智能体后 agentId 已不代表最初处理者）；有好友标识时加后缀区分
-  if (conv.value.channel === 'wechat')
-    return conv.value.wechatPeer ? `${t('chat.wechatBotName')}-${conv.value.wechatPeer}` : t('chat.wechatBotName')
+  // 通道归档（微信/QQ）固定显示机器人名（切过智能体后 agentId 已不代表最初处理者）
+  const channelName = channelConversation(conv.value)
+  if (channelName) return channelName.name
   // 任务归档的标题就是任务名
   if (conv.value.category === 'task') return conv.value.name || t('history.taskTag')
   if (conv.value.type === 'group') return conv.value.name || t('history.group')
@@ -93,16 +107,45 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => conv.value?.channel,
+  (ch) => {
+    if (ch === 'qq') refreshQqStatus()
+  },
+  { immediate: true },
+)
+
 function shouldShowDivider(index: number): boolean {
   if (index === 0) return true
   return messages.value[index].timestamp - messages.value[index - 1].timestamp > DIVIDER_GAP
 }
 
+/** QQ 会话里从 QQ 侧发来的外部消息（群成员/私聊好友）：气泡同样靠右（与微信通道一致——
+ *  通道对端在右、智能体在左），但保留名字+企鹅头像+角色徽标；'u0' 是旧消息的本地发送占位 */
+function isExternal(msg: Message): boolean {
+  if (msg.senderType !== 'user') return false
+  if (conv.value?.channel !== 'qq') return false
+  return !(msg.senderId === qqStatus.value?.ownerOpenid
+    || msg.senderId === userStore.user?.id
+    || msg.senderId === 'u0')
+}
+
+/** 自己人消息（不带外部身份标注）：本地发送与机主从 QQ 发来的 */
 function isSelf(msg: Message): boolean {
-  return msg.senderType === 'user'
+  return msg.senderType === 'user' && !isExternal(msg)
+}
+
+/** 平台随事件下发的用户名（author.username）：取 seen 列表里该 openid 最近一次的名字 */
+function qqMemberName(openid: string): string | null {
+  return qqStatus.value?.seen.find((p) => p.openid === openid && p.name)?.name ?? null
 }
 
 function senderInfo(msg: Message): { name: string; avatar?: string } {
+  // 仅外部 user 消息按「用户名（openid）」展示；agent 消息走下方智能体匹配，不吃企鹅头像
+  if (isExternal(msg)) {
+    const name = msg.senderName || qqMemberName(msg.senderId)
+    return { name: name ? `${name}（${msg.senderId}）` : msg.senderId, avatar: QQ_AVATAR }
+  }
   if (isSelf(msg)) {
     return { name: userStore.user?.name ?? t('chat.replySelf'), avatar: userStore.user?.avatar }
   }
@@ -111,7 +154,13 @@ function senderInfo(msg: Message): { name: string; avatar?: string } {
 }
 
 function senderBadge(msg: Message): string | undefined {
-  if (isSelf(msg)) return undefined
+  // QQ 外部成员按群角色标注（群主/管理员），普通成员无徽标；其余走智能体主脑徽标
+  if (isExternal(msg)) {
+    if (msg.senderRole === 'owner') return t('chat.qqOwner')
+    if (msg.senderRole === 'admin') return t('chat.qqAdmin')
+    return undefined
+  }
+  if (msg.senderType === 'user') return undefined
   return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
 }
 
@@ -173,9 +222,9 @@ const moreItems = computed(() => {
   const c = conv.value
   if (!c) return items
   items.push({ key: 'export', label: t('chat.exportChat') })
-  // 任务归档只能恢复任务；微信归档不可恢复聊天
+  // 任务归档只能恢复任务；通道归档（微信/QQ）不可恢复聊天
   if (c.category === 'task') items.push({ key: 'restore-task', label: t('history.restoreTask') })
-  else if (c.channel !== 'wechat')
+  else if (c.channel !== 'wechat' && c.channel !== 'qq')
     items.push({ key: 'continue', label: restoring.value ? t('history.restoring') : t('history.continueChat') })
   items.push({ key: 'delete', label: t('common.delete'), danger: true })
   return items
@@ -252,11 +301,11 @@ async function onMsgCtxSelect(key: string) {
         <MessageBubble
           v-else
           :message="msg"
-          :self="isSelf(msg)"
+          :self="msg.senderType === 'user'"
           :sender-name="senderInfo(msg).name"
           :sender-avatar="senderInfo(msg).avatar"
           :badge="senderBadge(msg)"
-          :show-name="conv?.type === 'group' && !isSelf(msg)"
+          :show-name="isExternal(msg)"
           @bubble-menu="openMsgCtx($event, msg)"
         />
       </template>
