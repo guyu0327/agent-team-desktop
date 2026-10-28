@@ -12,6 +12,9 @@ files:
 extraResources:
   - from: resources/server
     to: server
+    # 运行时只加载 agent-team-server.jar（main.js），本地同步用的 -SNAPSHOT 副本不进安装包
+    filter:
+      - agent-team-server.jar
   - from: web/dist
     to: web
   # ${os} 按打包目标平台展开（win/mac），安装包只带对应平台的 JRE；运行时 main.js 按同名字目录查找
