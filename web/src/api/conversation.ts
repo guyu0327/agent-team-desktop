@@ -142,6 +142,19 @@ export function listMessages(id: string, before?: number, limit = 50, taskId?: s
   return request(`/conversations/${id}/messages?${params.toString()}`)
 }
 
+/** 进入/刷新会话时重算上下文指示（与回合开始同一口径），刷新后不必等下一轮回复才有数值 */
+export function getContextSize(id: string): Promise<{
+  conversationId: string
+  chars: number
+  budget: number
+  /** 固定部分（系统提示词/技能/记忆等不可压缩项） */
+  fixed: number
+  /** 可压缩部分（滚动摘要 + 水位线后历史） */
+  compressible: number
+}> {
+  return request(`/conversations/${id}/context-size`)
+}
+
 export interface SendStreamHandlers {
   onUserMessage?(msg: Message): void
   /** 消息所属会话由 e.conversationId 指定（编排协作时成员消息可能进入其他会话） */
@@ -178,6 +191,12 @@ export interface SendStreamHandlers {
   onToolActivity?(e: ToolActivityEvent): void
   /** 系统标注消息（微信通道切换处理智能体等），渲染为居中分隔条 */
   onSystemNote?(msg: Message): void
+  /** 回合开始时推送本轮注入上下文的字符量与压缩预算（输入区指示条显示「离压缩还有多远」） */
+  onContextSize?(e: { conversationId: string; chars: number; budget: number; fixed: number; compressible: number }): void
+  /** 上下文压缩开始（后台执行不阻塞回复：上下文指示条上转圈） */
+  onCompressStart?(e: { conversationId: string }): void
+  /** 压缩结束；ok=false 即失败（本轮按预算截断历史照常回复，指示条转圈变红色叹号、error 点击可看） */
+  onCompressEnd?(e: { conversationId: string; ok: boolean; error?: string }): void
   onDone?(): void
 }
 
@@ -311,6 +330,15 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
     case 'system_note':
       handlers.onSystemNote?.(payload as Message)
       break
+    case 'context_size':
+      handlers.onContextSize?.(payload)
+      break
+    case 'compress_start':
+      handlers.onCompressStart?.(payload)
+      break
+    case 'compress_end':
+      handlers.onCompressEnd?.(payload)
+      break
     case 'done':
       handlers.onDone?.()
       break
@@ -321,7 +349,8 @@ const STREAM_EVENTS = [
   'user_message', 'reply_start', 'reply_pending', 'thinking_delta', 'delta', 'reply_end', 'reply_error',
   'conversation_created', 'conversation_updated', 'coordination_start', 'coordination_end',
   'discussion_start', 'discussion_end', 'op_request', 'ask_user', 'image_start', 'image_end',
-  'web_activity', 'browser_activity', 'tool_activity', 'system_note', 'done',
+  'web_activity', 'browser_activity', 'tool_activity', 'system_note', 'context_size',
+  'compress_start', 'compress_end', 'done',
 ] as const
 
 /**

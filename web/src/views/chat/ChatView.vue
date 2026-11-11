@@ -243,6 +243,18 @@ const browseTip = computed(() => {
 /** 实时通用工具调用提示（本会话最近一次文件/命令/技能等工具执行） */
 const toolActivity = computed(() => conversationStore.toolActivityByConv[props.id] ?? null)
 
+/** 上下文压缩进行中（compress_start 到 compress_end）：后台执行不阻塞回复，输入区指示条上转圈 */
+const compressing = computed(() => conversationStore.compressingByConv[props.id])
+/** 最近一次压缩失败原因：指示条转圈原地变红色叹号，点击展开看原因 */
+const compressError = computed(() => conversationStore.compressErrorByConv[props.id] ?? null)
+const compressErrOpen = ref(false)
+watch(compressError, (v) => {
+  if (!v) compressErrOpen.value = false
+})
+const toggleCompressErr = () => {
+  if (compressError.value) compressErrOpen.value = !compressErrOpen.value
+}
+
 const toolTip = computed(() => {
   const a = toolActivity.value
   if (!a) return null
@@ -452,11 +464,28 @@ function insertIntoDraft(text: string) {
   })
 }
 
-/** 群聊中左键点成员头像：直接 @ 对方 */
-function mentionFromAvatar(msg: Message) {
-  if (conversation.value?.type !== 'group' || isSelf(msg)) return
-  const agent = agentStore.getById(msg.senderId)
-  if (agent) insertIntoDraft(`@${agent.name} `)
+/** 消息发送者对应的智能体（自己/QQ 外部成员/已删智能体为 undefined） */
+function senderAgent(msg: Message): Agent | undefined {
+  return msg.senderType === 'agent' ? agentStore.getById(msg.senderId) ?? undefined : undefined
+}
+
+/** 左键点智能体头像：跳转该智能体详情页 */
+function openAgentProfile(msg: Message) {
+  const agent = senderAgent(msg)
+  if (agent) router.push({ name: 'ContactDetail', params: { id: agent.id } })
+}
+
+/** 本会话最近一轮注入模型的上下文字符量与预算（回合开始时由 context_size 事件推送） */
+const ctxSize = computed(() => conversationStore.contextSizeByConv[props.id])
+
+/** 字符数缩写（32400 → 32.4k），与压缩预算同一字符口径 */
+function fmtK(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n)
+}
+
+/** 上下文占预算的百分比（四舍五入取整，无预算按 0） */
+function pct(n: number, total: number): string {
+  return total > 0 ? String(Math.round((n * 100) / total)) : '0'
 }
 
 // 实时转写：按住麦克风说话，识别文本实时刷新到草稿尾部（tailLen 剥离法，不干扰用户编辑头部）
@@ -714,6 +743,8 @@ watch(
     conversationStore.setActive(id)
     forceScrollToBottom()
     stopWatch = conversationStore.watchConversation(id)
+    // 进入/刷新会话即重算上下文指示，刷新页面后立即有数值，不必等下一轮回复
+    conversationStore.refreshContextSize(id)
   },
   { immediate: true },
 )
@@ -1032,8 +1063,9 @@ function onKeydown(e: KeyboardEvent) {
             :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
             :thinking="conversationStore.thinkingByMsg[msg.id]"
             :mentionable="conversation?.type === 'group' && !isSelf(msg)"
+            :avatar-navigable="senderAgent(msg) !== undefined"
             @bubble-menu="openMsgCtx($event, msg)"
-            @avatar-click="mentionFromAvatar(msg)"
+            @avatar-open="openAgentProfile(msg)"
             @avatar-menu="openAvatarCtx($event, msg)"
           />
         </template>
@@ -1224,6 +1256,29 @@ function onKeydown(e: KeyboardEvent) {
         @paste="onPaste"
       />
       <div class="send-row">
+        <!-- 上下文注入量指示 + 压缩状态：压缩中百分比旁转圈，失败转圈原地变红色叹号（点击看原因） -->
+        <div v-if="ctxSize || compressing || compressError" class="ctx-status">
+          <span
+            v-if="ctxSize"
+            class="ctx-size"
+            :class="{ warn: ctxSize.chars > ctxSize.budget * 0.9 }"
+            :title="t('chat.contextSizeTip')"
+          >
+            {{ t('chat.contextSize', { fixed: fmtK(ctxSize.fixed ?? 0), compress: fmtK(ctxSize.compressible ?? 0), total: fmtK(ctxSize.budget), percent: pct(ctxSize.chars, ctxSize.budget) }) }}
+          </span>
+          <span v-if="compressing" class="ctx-spin" :title="t('chat.compressing')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+              <path d="M12 3a9 9 0 1 0 9 9" />
+            </svg>
+          </span>
+          <span v-else-if="compressError" class="ctx-err" :title="t('chat.compressErrTip')" @click="toggleCompressErr">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7.2v6M12 16.4v.4" />
+            </svg>
+          </span>
+          <div v-if="compressErrOpen && compressError" class="compress-err-pop">{{ compressError }}</div>
+        </div>
         <button v-if="canStopReply" class="send-btn stop" @click="handleStopReply">
           {{ t('chat.stopGenerating') }}
         </button>
@@ -2156,6 +2211,79 @@ function onKeydown(e: KeyboardEvent) {
 .send-row {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+}
+
+/* 上下文注入量指示（发送行左下角）：文字 + 压缩转圈/失败叹号同排，错误气泡锚定在其上方 */
+.ctx-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  min-width: 0;
+}
+
+.ctx-size {
+  font-size: $font-size-xs;
+  color: $text-tertiary;
+  transition: color $transition-fast;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &.warn {
+    color: #fa8a51;
+  }
+}
+
+/* 压缩进行中：百分比右侧转圈（后台压缩不阻塞回复，转圈表明摘要正在收敛） */
+.ctx-spin {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: $text-tertiary;
+
+  svg {
+    width: 12px;
+    height: 12px;
+    animation: ctx-spin-rotate 0.9s linear infinite;
+  }
+}
+
+@keyframes ctx-spin-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 压缩失败：转圈原地变红色叹号，点击展开失败原因 */
+.ctx-err {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: #fa5151;
+  cursor: pointer;
+
+  svg {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+.compress-err-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  max-width: 420px;
+  padding: 8px 10px;
+  border-radius: $radius-md;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  box-shadow: $shadow-md;
+  font-size: $font-size-xs;
+  color: $text-secondary;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .send-btn {

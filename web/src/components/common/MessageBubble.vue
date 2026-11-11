@@ -20,13 +20,15 @@ const props = defineProps<{
   thinking?: string
   /** 是否在气泡上方显示发送者名称（群聊场景） */
   showName?: boolean
-  /** 头像可交互（群聊中点他人头像 @ 对方） */
+  /** 头像可右键弹 @ 菜单（群聊中的他人头像） */
   mentionable?: boolean
+  /** 头像可左键跳转智能体详情页（发送者是智能体） */
+  avatarNavigable?: boolean
 }>()
 
 const emit = defineEmits<{
-  /** 左键点击头像：@ 该成员 */
-  avatarClick: []
+  /** 左键点击头像：跳转该智能体详情页 */
+  avatarOpen: []
   /** 右键点击头像：弹出菜单 */
   avatarMenu: [e: MouseEvent]
   /** 右键点击气泡本体（不含周围空白/头像/昵称区） */
@@ -294,8 +296,8 @@ async function openToolPath(path: string) {
       :name="senderName"
       :avatar="senderAvatar"
       :size="36"
-      :class="{ clickable: mentionable }"
-      @click.stop="mentionable && emit('avatarClick')"
+      :class="{ clickable: mentionable || avatarNavigable }"
+      @click.stop="avatarNavigable && emit('avatarOpen')"
       @contextmenu.stop.prevent="mentionable && emit('avatarMenu', $event)"
     />
     <div class="bubble-col">
@@ -585,6 +587,8 @@ async function openToolPath(path: string) {
         transform: rotate(180deg);
       }
     }
+
+    /* 压缩状态条：非交互（无 hover 反馈、无手型），动态点表明没卡住 */
   }
 
   .wa-list {

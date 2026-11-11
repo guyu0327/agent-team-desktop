@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Conversation, Message } from '@/types'
+import type { Agent, Conversation, Message } from '@/types'
 import { listMessages } from '@/api/conversation'
 import { getQqStatus, type QqStatus } from '@/api/qq'
 import { restoreArchivedTask } from '@/api/tasks'
@@ -164,6 +164,17 @@ function senderBadge(msg: Message): string | undefined {
   return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
 }
 
+/** 消息发送者对应的智能体（自己/QQ 外部成员/已删智能体为 undefined） */
+function senderAgent(msg: Message): Agent | undefined {
+  return msg.senderType === 'agent' ? agentStore.getById(msg.senderId) ?? undefined : undefined
+}
+
+/** 左键点智能体头像：跳转该智能体详情页 */
+function openAgentProfile(msg: Message) {
+  const agent = senderAgent(msg)
+  if (agent) router.push({ name: 'ContactDetail', params: { id: agent.id } })
+}
+
 async function continueChat() {
   if (restoring.value) return
   restoring.value = true
@@ -306,7 +317,9 @@ async function onMsgCtxSelect(key: string) {
           :sender-avatar="senderInfo(msg).avatar"
           :badge="senderBadge(msg)"
           :show-name="isExternal(msg)"
+          :avatar-navigable="senderAgent(msg) !== undefined"
           @bubble-menu="openMsgCtx($event, msg)"
+          @avatar-open="openAgentProfile(msg)"
         />
       </template>
       <div v-if="messages.length === 0" class="empty">{{ t('history.noMessages') }}</div>

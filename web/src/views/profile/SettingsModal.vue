@@ -116,9 +116,10 @@ const launchAtLogin = ref(false)
 const launchBusy = ref(false)
 
 const compressionEnabled = ref(true)
-const compressionBudget = ref(60000)
+/** 预算以 K 字符为单位（后端存字符数，UI 层 ×1000 换算），范围 20-500 */
+const compressionBudget = ref(50)
 const savedCompressionEnabled = ref(true)
-const savedCompressionBudget = ref(60000)
+const savedCompressionBudget = ref(50)
 const compressionSaving = ref(false)
 const compressionFeedback = ref<{ ok: boolean; text: string } | null>(null)
 
@@ -132,8 +133,8 @@ function resetCompression() {
 }
 
 async function saveCompression() {
-  const budget = Math.floor(Number(compressionBudget.value))
-  if (!Number.isFinite(budget) || budget < 5000 || budget > 500000) {
+  const budgetK = Math.floor(Number(compressionBudget.value))
+  if (!Number.isFinite(budgetK) || budgetK < 20 || budgetK > 500) {
     compressionFeedback.value = { ok: false, text: t('settings.compressionInvalid') }
     return
   }
@@ -141,7 +142,7 @@ async function saveCompression() {
   compressionSaving.value = true
   compressionFeedback.value = null
   try {
-    const s = await updateContextCompression(compressionEnabled.value, budget)
+    const s = await updateContextCompression(compressionEnabled.value, budgetK * 1000)
     compressionEnabled.value = s.enabled
     compressionBudget.value = s.budgetChars
     savedCompressionEnabled.value = s.enabled
@@ -315,9 +316,9 @@ onMounted(async () => {
   try {
     const c = await getContextCompression()
     compressionEnabled.value = c.enabled
-    compressionBudget.value = c.budgetChars
+    compressionBudget.value = Math.round(c.budgetChars / 1000)
     savedCompressionEnabled.value = c.enabled
-    savedCompressionBudget.value = c.budgetChars
+    savedCompressionBudget.value = Math.round(c.budgetChars / 1000)
   } catch (e) {
     compressionFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.loadFailed') }
   }
@@ -765,8 +766,8 @@ async function toggleComputer() {
               v-model.number="compressionBudget"
               class="input"
               type="number"
-              min="5000"
-              max="500000"
+              min="20"
+              max="500"
               :disabled="!compressionEnabled"
               :placeholder="t('settings.compressionBudgetPlaceholder')"
             />

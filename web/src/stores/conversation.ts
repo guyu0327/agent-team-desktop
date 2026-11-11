@@ -10,6 +10,7 @@ import {
   createSingle,
   decideOperation,
   deleteConversation,
+  getContextSize,
   listConversations,
   listMessages,
   listTaskConversations,
@@ -72,6 +73,12 @@ export const useConversationStore = defineStore('conversation', () => {
   const activeMsgIdByConv = ref<Record<string, string>>({})
   /** 消息 -> 思考过程流文本（占位气泡已打开的思考窗口在气泡内展示；首个正文增量/回合结束清除） */
   const thinkingByMsg = ref<Record<string, string>>({})
+  /** 会话 -> 最近一轮注入模型的上下文字符量与压缩预算（context_size 事件回合开始时推送，输入区指示条显示；进入/刷新会话时由 refreshContextSize 重算） */
+  const contextSizeByConv = ref<Record<string, { chars: number; budget: number; fixed: number; compressible: number }>>({})
+  /** 会话 -> 正在压缩上下文（compress_start 到 compress_end，上下文指示条上转圈） */
+  const compressingByConv = ref<Record<string, boolean>>({})
+  /** 会话 -> 最近一次压缩失败原因（compress_end ok=false 带回，指示条红色叹号点击可看） */
+  const compressErrorByConv = ref<Record<string, string>>({})
 
   /** 同一会话的发送串行化，避免两次发送的回复流交错 */
   const sendQueue = new Map<string, Promise<void>>()
@@ -421,6 +428,29 @@ export const useConversationStore = defineStore('conversation', () => {
         toolActivityByConv.value[e.conversationId] = e
         toolCids.add(e.conversationId)
       },
+      onContextSize: (e) => {
+        contextSizeByConv.value[e.conversationId] = {
+          chars: e.chars,
+          budget: e.budget,
+          fixed: e.fixed,
+          compressible: e.compressible,
+        }
+      },
+      onCompressStart: (e) => {
+        delete compressErrorByConv.value[e.conversationId]
+        compressingByConv.value[e.conversationId] = true
+      },
+      onCompressEnd: (e) => {
+        delete compressingByConv.value[e.conversationId]
+        delete compressErrorByConv.value[e.conversationId]
+        if (!e.ok) {
+          // 失败不弹窗：指示条转圈原地变红色叹号，点击看原因（本轮已按预算截断历史照常回复）
+          compressErrorByConv.value[e.conversationId] = e.error || t('chat.compressFailed')
+        } else {
+          // 压缩生效即重算注入量：指示条数字当场下降，压缩可感知
+          void refreshContextSize(e.conversationId)
+        }
+      },
     }
     async function finish() {
       for (const cid of typingCids) {
@@ -435,6 +465,15 @@ export const useConversationStore = defineStore('conversation', () => {
       for (const cid of webCids) delete webActivityByConv.value[cid]
       for (const cid of browseCids) delete browseActivityByConv.value[cid]
       for (const cid of toolCids) delete toolActivityByConv.value[cid]
+      // 压缩转圈不在此清：后台压缩比回合长寿，转圈跟随压缩全程（compress_start → compress_end），
+      // 提前清会让「转圈变红叹号」断档；回合结束的清理交给 compress_end 事件本身
+      // 回合结束即重算上下文指示：AI 回复此刻已落库、注入量已变，不等刷新/切换会话
+      // （发起方与观察者走同一收尾路径，两边指示条都当场更新；压缩随后完成时
+      // compress_end 仍会再刷新一次，以后到者为准；失败静默）
+      void refreshContextSize(conversationId)
+      for (const cid of typingCids) {
+        if (cid !== conversationId) void refreshContextSize(cid)
+      }
       try {
         // 协作/讨论会把消息写进原会话之外的新会话（如自动建的项目群）：
         // 凡此刻正在查看的会话都要标记已读，否则稍后 loadConversations 会用服务端
@@ -470,6 +509,25 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   /**
+   * 进入/刷新会话时重算上下文指示（GET context-size）：后端按回合开始同一口径
+   * （首个应答者的系统提示 + 历史注入量）现算现回，刷新后立即有数值，
+   * 不必等下一轮回复的 context_size 事件。失败静默（指示条等下次回合恢复）。
+   */
+  async function refreshContextSize(conversationId: string) {
+    try {
+      const e = await getContextSize(conversationId)
+      contextSizeByConv.value[e.conversationId] = {
+        chars: e.chars,
+        budget: e.budget,
+        fixed: e.fixed,
+        compressible: e.compressible,
+      }
+    } catch {
+      /* 预设缺失/会话异常等场景忽略 */
+    }
+  }
+
+  /**
    * 常驻订阅会话的扇出事件：定时任务触发的回合没有任何本地发送方，
    * 正在查看该会话的前端靠它实时看到流式输出。返回取消订阅函数。
    */
@@ -485,6 +543,8 @@ export const useConversationStore = defineStore('conversation', () => {
       delete pendingReplyByConv.value[conversationId]
       delete thinkingByConv.value[conversationId]
       delete activeMsgIdByConv.value[conversationId]
+      delete compressingByConv.value[conversationId]
+      delete compressErrorByConv.value[conversationId]
       for (const m of messagesMap.value[conversationId] ?? []) delete thinkingByMsg.value[m.id]
     }
     const { handlers, finish } = streamHandlers(conversationId)
@@ -616,6 +676,10 @@ export const useConversationStore = defineStore('conversation', () => {
     pendingReplyByConv,
     thinkingByConv,
     thinkingByMsg,
+    contextSizeByConv,
+    compressingByConv,
+    compressErrorByConv,
+    refreshContextSize,
     activeMsgIdByConv,
     pendingOpRequests,
     pendingAsks,
