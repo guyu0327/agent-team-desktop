@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Conversation } from '@/types'
 import Avatar from '@/components/common/Avatar.vue'
+import GroupAvatar from '@/components/common/GroupAvatar.vue'
 import { formatConversationTime } from '@/utils/time'
 import { t } from '@/i18n'
 
@@ -15,13 +16,22 @@ defineProps<{
   badge?: string
   /** 附加标签的着色类（如任务状态的运行/暂停/完成） */
   badgeClass?: string
+  /** 群聊成员头像单元（≥2 人时按微信群头像样式九宫格拼接，空则回退单头像） */
+  groupMembers?: Array<{ name: string; avatar?: string }>
 }>()
 </script>
 
 <template>
   <div class="conversation-item" :class="{ active }">
     <div class="avatar-wrap">
-      <Avatar :name="name" :avatar="avatar" :size="40" />
+      <GroupAvatar
+        v-if="groupMembers?.length"
+        :members="groupMembers"
+        :fallback-name="name"
+        :fallback-avatar="avatar"
+        :size="40"
+      />
+      <Avatar v-else :name="name" :avatar="avatar" :size="40" />
       <span v-if="conversation.unreadCount > 0" class="badge">
         {{ conversation.unreadCount > 99 ? '99+' : conversation.unreadCount }}
       </span>

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import SearchBar from '@/components/common/SearchBar.vue'
 import Avatar from '@/components/common/Avatar.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
+import AgentMemoryModal from './AgentMemoryModal.vue'
 import type { Agent } from '@/types'
 import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
@@ -88,10 +89,14 @@ const activeId = computed(() =>
 // 智能体右键菜单
 const ctx = ref<{ x: number; y: number; agent: Agent } | null>(null)
 
+/** 记忆数据弹窗目标：右键菜单直达，不必先开详情卡再点「更多」 */
+const memoryTarget = ref<Agent | null>(null)
+
 const ctxItems = computed(() => [
   { key: 'chat', label: t('contact.chat') },
-  { key: 'history', label: t('contact.history') },
   { key: 'edit', label: t('common.edit') },
+  { key: 'history', label: t('contact.history') },
+  { key: 'memory', label: t('contact.memoryData') },
   { key: 'delete', label: t('common.delete'), danger: true },
 ])
 
@@ -109,6 +114,10 @@ async function onCtxSelect(key: string) {
   }
   if (key === 'history') {
     router.push({ path: '/history', query: { agentId: agent.id } })
+    return
+  }
+  if (key === 'memory') {
+    memoryTarget.value = agent
     return
   }
   if (key === 'edit') {
@@ -201,6 +210,12 @@ async function onCtxSelect(key: string) {
       <router-view />
     </section>
   </div>
+  <AgentMemoryModal
+    v-if="memoryTarget"
+    :agent-id="memoryTarget.id"
+    :agent-name="memoryTarget.name"
+    @close="memoryTarget = null"
+  />
 </template>
 
 <style scoped lang="scss">

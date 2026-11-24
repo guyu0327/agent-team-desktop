@@ -11,6 +11,7 @@ import WechatPopover from '@/views/profile/WechatPopover.vue'
 import QqPopover from '@/views/profile/QqPopover.vue'
 import { showSettings } from '@/composables/settingsModal'
 import { requestClose } from '@/composables/closeConfirm'
+import { isTourDone, startTour } from '@/composables/tutorial'
 import { desktop } from '@/api/desktop'
 import { getWechatStatus } from '@/api/wechat'
 import { getQqStatus } from '@/api/qq'
@@ -46,6 +47,8 @@ async function refreshWechat() {
 onMounted(() => {
   refreshWechat()
   wechatTimer = setInterval(refreshWechat, 15000)
+  // 首次使用自动弹新手引导：稍等首帧布局稳定再聚光
+  if (!isTourDone()) setTimeout(() => startTour(), 600)
 })
 
 onUnmounted(() => {
@@ -85,7 +88,7 @@ const isWindows = navigator.userAgent.includes('Windows')
       </button>
 
       <nav class="nav">
-        <router-link to="/chat" class="nav-item" active-class="active" :title="t('nav.messages')">
+        <router-link to="/chat" class="nav-item" active-class="active" :title="t('nav.messages')" data-tour="nav-chat">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M12 3C6.48 3 2 6.94 2 11.75c0 2.66 1.4 5.04 3.62 6.65-.12.83-.5 2.1-1.12 3.1 0 0 2.3-.2 4.12-1.4.74.16 1.52.25 2.33.25h.05c5.52 0 10-3.94 10-8.75S17.52 3 12 3z"
@@ -95,20 +98,20 @@ const isWindows = navigator.userAgent.includes('Windows')
             {{ conversationStore.totalUnread > 99 ? '99+' : conversationStore.totalUnread }}
           </span>
         </router-link>
-        <router-link to="/tasks" class="nav-item" active-class="active" :title="t('nav.tasks')">
+        <router-link to="/tasks" class="nav-item" active-class="active" :title="t('nav.tasks')" data-tour="nav-tasks">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="9" />
             <path d="M12 7v5l3.5 2" />
           </svg>
         </router-link>
-        <router-link to="/contact" class="nav-item" active-class="active" :title="t('nav.contacts')">
+        <router-link to="/contact" class="nav-item" active-class="active" :title="t('nav.contacts')" data-tour="nav-contact">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
               d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"
             />
           </svg>
         </router-link>
-        <router-link to="/models" class="nav-item" active-class="active" :title="t('nav.models')">
+        <router-link to="/models" class="nav-item" active-class="active" :title="t('nav.models')" data-tour="nav-models">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="5" y="5" width="14" height="14" rx="2" />
             <rect x="10" y="10" width="4" height="4" />
@@ -121,7 +124,7 @@ const isWindows = navigator.userAgent.includes('Windows')
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
         </router-link>
-        <router-link to="/history" class="nav-item" active-class="active" :title="t('nav.history')">
+        <router-link to="/history" class="nav-item" active-class="active" :title="t('nav.history')" data-tour="nav-history">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 12a9 9 0 1 0 3-6.7L3.5 7.5" />
             <path d="M3 3v5h5" />
@@ -147,7 +150,7 @@ const isWindows = navigator.userAgent.includes('Windows')
           </svg>
           <span class="wechat-dot" :class="{ on: qqConnected }"></span>
         </button>
-        <button class="nav-item" :title="t('nav.settings')" @click="showSettings = true">
+        <button class="nav-item" :title="t('nav.settings')" data-tour="nav-settings" @click="showSettings = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path

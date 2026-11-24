@@ -289,12 +289,6 @@ function openAgent(agent: Agent) {
       </div>
 
       <div class="menu-section">
-        <button class="menu-item" @click="exportChat">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
-          </svg>
-          {{ t('chat.exportChat') }}
-        </button>
         <button class="menu-item" @click="togglePin">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
@@ -314,6 +308,12 @@ function openAgent(agent: Agent) {
       </div>
 
       <div class="danger-section">
+        <button class="menu-item" @click="exportChat">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+          </svg>
+          {{ t('chat.exportChat') }}
+        </button>
         <button class="menu-item danger" @click="disbandGroup">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
@@ -326,12 +326,6 @@ function openAgent(agent: Agent) {
     </template>
 
     <template v-else>
-      <button class="menu-item" @click="exportChat">
-        <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
-        </svg>
-        {{ t('chat.exportChat') }}
-      </button>
       <button class="menu-item" @click="togglePin">
         <svg viewBox="0 0 24 24" fill="currentColor">
           <path
@@ -355,6 +349,12 @@ function openAgent(agent: Agent) {
           />
         </svg>
         {{ t('chat.newSession') }}
+      </button>
+      <button class="menu-item" @click="exportChat">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+        </svg>
+        {{ t('chat.exportChat') }}
       </button>
       <button class="menu-item danger" @click="deleteChat">
         <svg viewBox="0 0 24 24" fill="currentColor">

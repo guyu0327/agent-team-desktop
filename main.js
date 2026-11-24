@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, nativeTheme } = require('electron')
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, nativeTheme, session, desktopCapturer } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -455,6 +455,29 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(async () => {
+    // 音乐律动：getDisplayMedia 系统回环采集（Windows）免弹窗自动放行——渲染层只取音轨做频谱，视频轨立即关闭。
+    // 只在本应用的 session 内生效；屏幕画面不会流出到任何地方。
+    // 屏幕源缓存：desktopCapturer 首次枚举要初始化采集子系统，实测可慢到十几秒（点击→开启延迟的主因），
+    // 启动时后台预热一次 + 长 TTL 内复用，用户点 ♪ 时直接命中
+    let screenCache = null
+    let screenCacheAt = 0
+    const SCREEN_CACHE_TTL = 5 * 60_000
+    session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+      const now = Date.now()
+      const cached = screenCache && now - screenCacheAt < SCREEN_CACHE_TTL
+      const lookup = cached ? Promise.resolve(screenCache) : desktopCapturer.getSources({ types: ['screen'] })
+      lookup.then((sources) => {
+        if (!cached) { screenCache = sources; screenCacheAt = now }
+        if (sources.length) callback({ video: sources[0], audio: 'loopback' })
+        else callback({})
+      }).catch(() => callback({}))
+    })
+    setTimeout(() => {
+      desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+        screenCache = sources
+        screenCacheAt = Date.now()
+      }).catch(() => {})
+    }, 5000)
     if (isDev) {
       createWindow()
     } else {

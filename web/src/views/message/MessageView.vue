@@ -35,18 +35,18 @@ const maskDown = ref(false)
 const maskUp = ref(false)
 const renameDraft = ref('')
 
-/** 右键菜单与聊天页「⋯」一致：导出 + 置顶/已读/重命名/新会话 + 删除，顺序按 不影响数据→更新→删除 */
+/** 右键菜单与聊天页「⋯」项一致：置顶/已读/重命名/新会话 + 导出（紧邻删除正上方）+ 删除 */
 const convCtxItems = computed(() => {
   const c = convCtx.value?.conv
   if (!c) return []
   const items: { key: string; label: string; danger?: boolean }[] = [
-    { key: 'export', label: t('chat.exportChat') },
     { key: 'pin', label: c.pinned ? t('chat.unpin') : t('chat.pin') },
   ]
   if (c.unreadCount > 0) items.push({ key: 'read', label: t('message.markRead') })
   if (c.type === 'group') items.push({ key: 'rename', label: t('message.rename') })
   // 通道会话（微信/QQ）不提供"开始新会话"：归档+按智能体新开会话会脱离外部绑定，重置走聊天页菜单
   else if (c.channel !== 'wechat' && c.channel !== 'qq') items.push({ key: 'newChat', label: t('message.newChat') })
+  items.push({ key: 'export', label: t('chat.exportChat') })
   items.push({ key: 'delete', label: c.type === 'group' ? t('message.disband') : t('message.deleteChat'), danger: true })
   return items
 })
@@ -129,6 +129,16 @@ function displayOf(c: Conversation): { name: string; avatar: string } {
   return { name: agent?.name ?? t('message.deletedAgent'), avatar: agent?.avatar ?? '' }
 }
 
+// 群聊头像成员单元：按 memberIds 解析各成员头像，供 GroupAvatar 九宫格拼接；不足 2 人由其回退单头像
+// QQ/微信通道群维持通道图标身份，不拼格
+function groupMembersOf(c: Conversation) {
+  if (c.type !== 'group' || channelConversation(c)) return []
+  return c.memberIds.flatMap((id) => {
+    const a = agentStore.getById(id)
+    return a ? [{ name: a.name, avatar: a.avatar ?? '' }] : []
+  })
+}
+
 const filteredConversations = computed(() => {
   const list = conversationStore.sortedConversations
   const q = keyword.value.trim().toLowerCase()
@@ -166,6 +176,7 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
             :conversation="c"
             :name="displayOf(c).name"
             :avatar="displayOf(c).avatar"
+            :group-members="groupMembersOf(c)"
             :active="c.id === activeId"
             :typing="conversationStore.isTyping(c.id)"
             :pinned="!!c.pinned"

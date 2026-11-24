@@ -79,6 +79,13 @@ export const useConversationStore = defineStore('conversation', () => {
   const compressingByConv = ref<Record<string, boolean>>({})
   /** 会话 -> 最近一次压缩失败原因（compress_end ok=false 带回，指示条红色叹号点击可看） */
   const compressErrorByConv = ref<Record<string, string>>({})
+  /** 会话 -> 输入区草稿（仅内存：切页/切会话互不干扰且保留，重启软件即清空，刻意不落盘） */
+  const chatDraftByConv = ref<Record<string, string>>({})
+
+  /** 保存输入区草稿：键入即同步，发送清空也走这里 */
+  function setChatDraft(conversationId: string, text: string) {
+    chatDraftByConv.value[conversationId] = text
+  }
 
   /** 同一会话的发送串行化，避免两次发送的回复流交错 */
   const sendQueue = new Map<string, Promise<void>>()
@@ -663,6 +670,8 @@ export const useConversationStore = defineStore('conversation', () => {
     findConv,
     typingByConv,
     isTyping,
+    chatDraftByConv,
+    setChatDraft,
     imageGenByConv,
     isGeneratingImage,
     webActivityByConv,

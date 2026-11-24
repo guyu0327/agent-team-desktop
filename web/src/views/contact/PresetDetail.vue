@@ -120,9 +120,9 @@ async function remove() {
               <router-link
                 v-for="a in usingAgents"
                 :key="a.id"
-                :to="`/contact/${a.id}/edit`"
+                :to="`/contact/${a.id}`"
                 class="usage-agent"
-                :title="`${t('common.edit')} ${a.name}`"
+                :title="a.name"
               >
                 <Avatar :name="a.name" :avatar="a.avatar" :size="22" />
                 <span class="usage-name">{{ a.name }}</span>

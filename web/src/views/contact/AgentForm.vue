@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { AgentDraft } from '@/types'
 import { useAgentStore } from '@/stores/agent'
@@ -7,8 +7,8 @@ import { useModelPresetStore } from '@/stores/modelPreset'
 import { useSkillStore } from '@/stores/skill'
 import { autoFillAgent } from '@/api/agent'
 import { confirmAction } from '@/composables/confirm'
-import { AVATAR_PRESETS } from '@/mock/seed'
 import Avatar from '@/components/common/Avatar.vue'
+import { AVATAR_PALETTE, encodeAvatar, hashColor, parseAvatar } from '@/utils/avatar'
 import { t } from '@/i18n'
 
 const props = defineProps<{ id?: string }>()
@@ -24,6 +24,21 @@ onMounted(() => {
 
 const isEdit = computed(() => !!props.id)
 const existing = computed(() => (props.id ? agentStore.getById(props.id) : undefined))
+
+// —— 头像自定义（文字 + 底色）：编辑时从 avatar 字段解析回显，保存时编码写回 ——
+// 须先于下方 immediate watch 声明：syncForm→loadAvatar 会引用这些 ref，
+// 否则首轮回显触发 TDZ 异常被 watcher 静默吞掉，表单只回显一半（预设/分组/简介全空）
+const avatarText = ref('')
+const avatarColor = ref<string | undefined>(undefined)
+
+function loadAvatar(value: string | undefined) {
+  const s = parseAvatar(value)
+  const ts = s?.kind === 'text' ? s : null
+  avatarText.value = ts?.text ?? ''
+  avatarColor.value = ts?.color
+}
+
+const customAvatar = computed(() => encodeAvatar(avatarText.value, avatarColor.value))
 
 const form = reactive<AgentDraft>({
   name: '',
@@ -42,7 +57,7 @@ const form = reactive<AgentDraft>({
 function syncForm() {
   const e = existing.value
   form.name = e?.name ?? ''
-  form.avatar = e?.avatar ?? ''
+  loadAvatar(e?.avatar)
   form.groupName = e?.groupName ?? ''
   form.description = e?.description ?? ''
   form.presetId = e?.presetId ?? ''
@@ -54,6 +69,58 @@ function syncForm() {
 }
 
 watch(() => props.id, syncForm, { immediate: true })
+
+// 复用实例/直达链接进编辑页时，agent store 可能晚于表单挂载才就绪，首轮回显拿到空值；
+// existing 到位后补一次回放。表单已动过（名称非空）则不回放，避免覆盖编辑中内容
+watch(existing, (e) => {
+  if (e && !form.name.trim() && !form.groupName.trim() && !form.description.trim()) syncForm()
+})
+
+// —— 头像就地编辑：点文字区改文字、点底色区弹取色浮层 ——
+const editingText = ref(false)
+const draftText = ref('')
+const textInput = ref<HTMLInputElement>()
+const colorOpen = ref(false)
+const editableRoot = ref<HTMLElement>()
+
+// 预览底色/文字与 Avatar 组件同口径：自定义优先，缺省回名称哈希色/首字
+const previewBg = computed(() => avatarColor.value || hashColor(form.name || t('agentForm.defaultName')))
+const previewText = computed(() => avatarText.value || (form.name || t('agentForm.defaultName')).charAt(0))
+
+function openTextEdit() {
+  colorOpen.value = false
+  draftText.value = avatarText.value
+  editingText.value = true
+  nextTick(() => {
+    textInput.value?.focus()
+    textInput.value?.select()
+  })
+}
+
+function commitText() {
+  if (!editingText.value) return
+  avatarText.value = draftText.value.trim()
+  editingText.value = false
+}
+
+function cancelTextEdit() {
+  editingText.value = false
+}
+
+function toggleColor() {
+  colorOpen.value = !colorOpen.value
+}
+
+function onDocPointer(e: PointerEvent) {
+  if (!editableRoot.value?.contains(e.target as Node)) colorOpen.value = false
+}
+
+watch(colorOpen, (open) => {
+  if (open) document.addEventListener('pointerdown', onDocPointer)
+  else document.removeEventListener('pointerdown', onDocPointer)
+})
+
+onUnmounted(() => document.removeEventListener('pointerdown', onDocPointer))
 
 const nameError = computed(() => (form.name.trim() ? '' : t('agentForm.nameRequired')))
 
@@ -72,10 +139,6 @@ const PROTOCOL_LABELS = computed<Record<string, string>>(() => ({
 function protocolLabel(protocol: string) {
   return PROTOCOL_LABELS.value[protocol] ?? protocol
 }
-
-const selectedPreset = computed(() =>
-  presetOptions.value.find((p) => p.id === form.presetId),
-)
 
 const existingGroups = computed(() => [
   ...new Set(
@@ -110,10 +173,6 @@ function applyGroupSuggestion() {
   groupFocus.value = false
 }
 
-function pickAvatar(emoji: string) {
-  form.avatar = form.avatar === emoji ? '' : emoji
-}
-
 function toggleSkill(skillId: string) {
   const set = new Set(form.skillIds)
   if (set.has(skillId)) set.delete(skillId)
@@ -126,8 +185,14 @@ const chatPresets = computed(() => presetStore.presets.filter((p) => p.protocol 
 
 const AUTO_MODEL_KEY = 'agent-autofill-model'
 
+// 名称为主、备注括注，下拉里同名预设靠备注区分
 function presetLabel(p: { name: string; remark: string }) {
-  return p.remark ? `${p.remark}（${p.name}）` : p.name
+  return p.remark ? `${p.name}（${p.remark}）` : p.name
+}
+
+function imagePresetLabel(p: { name: string; remark: string; protocol: string }) {
+  const proto = protocolLabel(p.protocol)
+  return p.remark ? `${p.name}（${p.remark} · ${proto}）` : `${p.name}（${proto}）`
 }
 
 const autoPrompt = ref('')
@@ -168,7 +233,6 @@ async function autoFill() {
   try {
     const draft = await autoFillAgent(autoPrompt.value.trim(), autoPresetId.value)
     form.name = draft.name
-    form.avatar = draft.avatar
     form.groupName = draft.groupName
     form.description = draft.description
     form.systemPrompt = draft.systemPrompt
@@ -187,6 +251,7 @@ async function autoFill() {
 
 async function save() {
   if (!form.name.trim() || !form.presetId) return
+  form.avatar = encodeAvatar(avatarText.value, avatarColor.value)
   if (isEdit.value && props.id) {
     await agentStore.updateAgentById(props.id, { ...form })
     router.push(`/contact/${props.id}`)
@@ -233,25 +298,43 @@ function cancel() {
       </div>
 
       <div class="field">
-        <label class="label">{{ t('agentForm.preview') }}</label>
-        <div class="preview">
-          <Avatar :name="form.name || t('agentForm.defaultName')" :avatar="form.avatar" :size="56" />
-        </div>
-      </div>
-
-      <div class="field">
         <label class="label">{{ t('agentForm.avatarLabel') }}</label>
-        <div class="avatar-preset">
-          <button
-            v-for="emoji in AVATAR_PRESETS"
-            :key="emoji"
-            type="button"
-            class="emoji-btn"
-            :class="{ selected: form.avatar === emoji }"
-            @click="pickAvatar(emoji)"
-          >
-            {{ emoji }}
-          </button>
+        <div ref="editableRoot" class="avatar-editable">
+          <div v-if="editingText" class="avatar-box editing" :style="{ background: previewBg }">
+            <input
+              ref="textInput"
+              v-model="draftText"
+              class="avatar-text-input"
+              maxlength="6"
+              :placeholder="previewText"
+              @keydown.enter.prevent="commitText"
+              @keydown.esc.prevent="cancelTextEdit"
+              @blur="commitText"
+            />
+          </div>
+          <template v-else>
+            <Avatar :name="form.name || t('agentForm.defaultName')" :avatar="customAvatar" :size="56" />
+            <div class="avatar-bg-zone" :title="t('agentForm.avatarColorTitle')" @click="toggleColor"></div>
+            <span class="avatar-text-zone" :title="t('agentForm.avatarTextTitle')" @click="openTextEdit"></span>
+          </template>
+          <div v-if="colorOpen" class="color-pop">
+            <button
+              type="button"
+              class="color-dot auto"
+              :class="{ selected: !avatarColor }"
+              :title="t('agentForm.avatarColorAuto')"
+              @click="avatarColor = undefined"
+            ></button>
+            <button
+              v-for="c in AVATAR_PALETTE"
+              :key="c"
+              type="button"
+              class="color-dot"
+              :class="{ selected: avatarColor === c }"
+              :style="{ background: c }"
+              @click="avatarColor = avatarColor === c ? undefined : c"
+            ></button>
+          </div>
         </div>
       </div>
 
@@ -301,7 +384,7 @@ function cancel() {
         <select v-model="form.presetId" class="input" :disabled="presetOptions.length === 0">
           <option value="" disabled>{{ presetOptions.length === 0 ? t('agentForm.noPresets') : t('agentForm.pickPreset') }}</option>
           <option v-for="p in presetOptions" :key="p.id" :value="p.id">
-            {{ p.name }}
+            {{ presetLabel(p) }}
           </option>
         </select>
         <p v-if="presetOptions.length === 0" class="preset-empty">
@@ -310,47 +393,15 @@ function cancel() {
         </p>
       </div>
 
-      <template v-if="selectedPreset">
-        <div class="field">
-          <label class="label">{{ t('agentForm.apiByPreset') }}</label>
-          <input class="input" :value="selectedPreset.baseUrl" readonly disabled />
-        </div>
-
-        <div class="field">
-          <label class="label">{{ t('agentForm.keyByPreset') }}</label>
-          <input class="input" :value="selectedPreset.hasKey ? t('agentForm.configured') : t('agentForm.notConfigured')" readonly disabled />
-        </div>
-      </template>
-
       <div class="field">
         <label class="label">{{ t('agentForm.imagePresetLabel') }}</label>
         <select v-model="form.imagePresetId" class="input">
           <option value="">{{ t('agentForm.noImagePreset') }}</option>
           <option v-for="p in imagePresetOptions" :key="p.id" :value="p.id">
-            {{ p.name }}（{{ protocolLabel(p.protocol) }}）
+            {{ imagePresetLabel(p) }}
           </option>
         </select>
         <p class="preset-empty">{{ t('agentForm.imagePresetHint') }}</p>
-      </div>
-
-      <div class="field">
-        <label class="label">{{ t('agentForm.skillsLabel') }}</label>
-        <p class="preset-empty">{{ t('agentForm.skillsHint') }}</p>
-        <div v-if="skillStore.skills.length > 0" class="skill-checks">
-          <label
-            v-for="s in skillStore.skills"
-            :key="s.skillId"
-            class="skill-check"
-            :title="s.description"
-          >
-            <input type="checkbox" :checked="form.skillIds.includes(s.skillId)" @change="toggleSkill(s.skillId)" />
-            <span class="skill-name">{{ s.name }}</span>
-          </label>
-        </div>
-        <p v-else class="preset-empty">
-          {{ t('agentForm.noSkills') }}
-          <router-link to="/skills/add" class="link">{{ t('agentForm.goSkills') }}</router-link>
-        </p>
       </div>
 
       <div class="field">
@@ -381,6 +432,26 @@ function cancel() {
           <span>{{ t('agentForm.tempBalanced') }}</span>
           <span>{{ t('agentForm.tempDivergent') }}</span>
         </div>
+      </div>
+
+      <div class="field">
+        <label class="label">{{ t('agentForm.skillsLabel') }}</label>
+        <p class="preset-empty">{{ t('agentForm.skillsHint') }}</p>
+        <div v-if="skillStore.skills.length > 0" class="skill-checks">
+          <label
+            v-for="s in skillStore.skills"
+            :key="s.skillId"
+            class="skill-check"
+            :title="s.description"
+          >
+            <input type="checkbox" :checked="form.skillIds.includes(s.skillId)" @change="toggleSkill(s.skillId)" />
+            <span class="skill-name">{{ s.name }}</span>
+          </label>
+        </div>
+        <p v-else class="preset-empty">
+          {{ t('agentForm.noSkills') }}
+          <router-link to="/skills/add" class="link">{{ t('agentForm.goSkills') }}</router-link>
+        </p>
       </div>
 
       <div class="actions">
@@ -465,36 +536,98 @@ function cancel() {
   }
 }
 
-.preview {
-  padding: $spacing-sm 0;
+// 头像本体验编辑：整块点底色弹取色，中央文字区点按进文字编辑
+.avatar-editable {
+  position: relative;
+  width: 56px;
 }
 
-.avatar-preset {
+.avatar-bg-zone {
+  position: absolute;
+  inset: 0;
+  border-radius: $radius-sm;
+  cursor: pointer;
+}
+
+.avatar-text-zone {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 32px;
+  cursor: text;
+}
+
+.avatar-box {
+  width: 56px;
+  height: 56px;
+  border-radius: $radius-sm;
+
+  &.editing {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.avatar-text-input {
+  // 略宽于头像方块，6 字输入不裁切
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px;
+  padding: 3px 4px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.2);
+  border: none;
+  border-radius: $radius-sm;
+  color: $text-white;
+  font-size: 13px;
+
+  &:focus {
+    outline: 1px solid rgba(255, 255, 255, 0.6);
+  }
+
+  &::placeholder {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}
+
+.color-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: $spacing-sm;
+  width: max-content;
+  padding: $spacing-sm;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  border-radius: $radius-md;
+  box-shadow: $shadow-md;
 }
 
-.emoji-btn {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  border-radius: $radius-sm;
-  background: $bg-input;
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: $radius-round;
+  border: none;
   cursor: pointer;
-  transition: background $transition-fast, outline-color $transition-fast;
   outline: 2px solid transparent;
   outline-offset: 1px;
+  transition: outline-color $transition-fast;
 
-  &:hover {
-    background: $bg-hover;
+  &.auto {
+    background: transparent;
+    border: 1.5px dashed $border-color;
   }
 
   &.selected {
-    background: $primary-light;
     outline-color: $primary-color;
   }
 }

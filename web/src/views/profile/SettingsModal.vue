@@ -21,6 +21,7 @@ import {
 } from '@/composables/appearance'
 import { t } from '@/i18n'
 import { APP_VERSION, GITHUB_REPO_URL, CSDN_BLOG_URL } from '@/constants/app'
+import { startTour } from '@/composables/tutorial'
 import ChangelogModal from './ChangelogModal.vue'
 import LogsModal from './LogsModal.vue'
 
@@ -526,6 +527,12 @@ async function toggleComputer() {
   }
 }
 
+/** 重看新手引导：先关设置弹窗，等遮罩卸载后再聚光 */
+function replayTour() {
+  emit('close')
+  setTimeout(() => startTour(), 80)
+}
+
 </script>
 
 <template>
@@ -585,6 +592,16 @@ async function toggleComputer() {
               <button class="seg-btn" :class="{ on: closePref === 'ask' }" @click="setClosePref('ask')">{{ t('settings.closeAsk') }}</button>
               <button class="seg-btn" :class="{ on: closePref === 'minimize' }" @click="setClosePref('minimize')">{{ t('settings.closeMinimize') }}</button>
               <button class="seg-btn" :class="{ on: closePref === 'quit' }" @click="setClosePref('quit')">{{ t('settings.closeQuit') }}</button>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <span class="row-info">
+              <span class="row-name">{{ t('settings.onboardingName') }}</span>
+              <span class="row-desc">{{ t('settings.onboardingDesc') }}</span>
+            </span>
+            <div class="seg">
+              <button class="seg-btn" @click="replayTour">{{ t('settings.replayTour') }}</button>
             </div>
           </div>
         </div>

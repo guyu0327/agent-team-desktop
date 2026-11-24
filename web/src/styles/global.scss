@@ -155,3 +155,62 @@ html.mac .drag-region {
     -webkit-app-region: no-drag;
   }
 }
+
+/* 新手引导（driver.js）弹卡跟随应用主题：driver.css 白底固定色且打包顺序在后，
+   全部加 html 前缀提特异性，保证覆写稳定生效 */
+html .driver-popover {
+  background-color: var(--c-bg-panel);
+  color: var(--c-text-primary);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  font-family: inherit;
+}
+
+html .driver-popover-title {
+  color: var(--c-text-primary);
+  font-weight: 600;
+}
+
+html .driver-popover-description {
+  color: var(--c-text-secondary);
+}
+
+html .driver-popover-progress-text {
+  color: var(--c-text-tertiary);
+}
+
+html .driver-popover-close-btn {
+  color: var(--c-text-tertiary);
+
+  &:hover {
+    color: var(--c-text-primary);
+  }
+}
+
+html .driver-popover .driver-popover-footer-btn {
+  background-color: var(--c-bg-input);
+  color: var(--c-text-primary);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  text-shadow: none;
+
+  &:hover {
+    background-color: var(--c-bg-hover);
+  }
+}
+
+html .driver-popover .driver-popover-next-btn {
+  background-color: var(--c-primary);
+  color: #fff;
+  border-color: transparent;
+
+  &:hover {
+    background-color: var(--c-primary-hover);
+  }
+}
+
+/* 聚光提示箭头颜色无法跟随主题圆角卡片，直接隐藏更干净 */
+html .driver-popover-arrow {
+  display: none;
+}

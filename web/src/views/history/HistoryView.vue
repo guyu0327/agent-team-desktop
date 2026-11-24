@@ -46,6 +46,16 @@ function displayOf(c: Conversation): { name: string; avatar: string } {
   return { name: agent?.name ?? t('common.deletedAgent'), avatar: agent?.avatar ?? '' }
 }
 
+// 群聊头像成员单元：按 memberIds 解析各成员头像，供 GroupAvatar 九宫格拼接；不足 2 人由其回退单头像
+// QQ/微信通道群维持通道图标身份，不拼格
+function groupMembersOf(c: Conversation) {
+  if (c.type !== 'group' || channelConversation(c)) return []
+  return c.memberIds.flatMap((id) => {
+    const a = agentStore.getById(id)
+    return a ? [{ name: a.name, avatar: a.avatar ?? '' }] : []
+  })
+}
+
 const filtered = computed(() => {
   const q = keyword.value.trim().toLowerCase()
   return historyStore.archived.filter((c) => {
@@ -100,18 +110,17 @@ function clearAgentFilter() {
 // 历史会话右键菜单
 const ctx = ref<{ x: number; y: number; conv: Conversation } | null>(null)
 
-/** 右键菜单与归档详情页「⋯」一致：导出 + 恢复任务/继续聊天 + 删除，顺序按 不影响数据→更新→删除 */
+/** 右键菜单与归档详情页「⋯」一致：恢复任务/继续聊天 + 导出（紧邻删除正上方）+ 删除 */
 const ctxItems = computed(() => {
   if (!ctx.value) return []
   // 任务归档可恢复定时任务；普通归档可继续聊天；通道归档（微信/QQ）不可恢复聊天
-  const items: { key: string; label: string; danger?: boolean }[] = [
-    { key: 'export', label: t('chat.exportChat') },
-  ]
+  const items: { key: string; label: string; danger?: boolean }[] = []
   if (ctx.value.conv.category === 'task') {
     items.push({ key: 'restore-task', label: t('history.restoreTask') })
   } else if (ctx.value.conv.channel !== 'wechat' && ctx.value.conv.channel !== 'qq') {
     items.push({ key: 'continue', label: t('history.continueChat') })
   }
+  items.push({ key: 'export', label: t('chat.exportChat') })
   items.push({ key: 'delete', label: t('common.delete'), danger: true })
   return items
 })
@@ -202,6 +211,7 @@ async function onCtxSelect(key: string) {
                 :conversation="c"
                 :name="displayOf(c).name"
                 :avatar="displayOf(c).avatar"
+                :group-members="groupMembersOf(c)"
                 :badge="c.category === 'task' ? t('history.taskTag') : undefined"
                 :active="c.id === activeId"
               />

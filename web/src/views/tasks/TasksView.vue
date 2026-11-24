@@ -59,6 +59,15 @@ function displayOf(c: Conversation): { name: string; avatar: string } {
   return { name: agent?.name ?? t('message.deletedAgent'), avatar: agent?.avatar ?? '' }
 }
 
+// 群聊头像成员单元：按 memberIds 解析各成员头像，供 GroupAvatar 九宫格拼接；不足 2 人由其回退单头像
+function groupMembersOf(c: Conversation) {
+  if (c.type !== 'group') return []
+  return c.memberIds.flatMap((id) => {
+    const a = agentStore.getById(id)
+    return a ? [{ name: a.name, avatar: a.avatar ?? '' }] : []
+  })
+}
+
 /** 协作任务群名字后的状态标签（群本身就是一个任务），颜色与任务子项的状态文字一致 */
 function groupBadge(c: Conversation): { label: string; cls: string } | undefined {
   const task = tasksByConv.value[c.id]?.[0]
@@ -112,20 +121,19 @@ function onConvContextMenu(c: Conversation, e: MouseEvent) {
   convCtx.value = { x: e.clientX, y: e.clientY, conv: c }
 }
 
-/** 右键菜单与页头「⋯」一致：导出 + 批量恢复/暂停 + 删除所有，顺序按 不影响数据→更新→删除 */
+/** 右键菜单与页头「⋯」一致：批量恢复/暂停 + 导出（紧邻删除正上方）+ 删除所有 */
 const convCtxItems = computed(() => {
   const conv = convCtx.value?.conv
   const list = conv ? (tasksByConv.value[conv.id] ?? []) : []
   if (list.length === 0) return []
-  const items: { key: string; label: string; danger?: boolean }[] = [
-    { key: 'export', label: t('chat.exportChat') },
-  ]
+  const items: { key: string; label: string; danger?: boolean }[] = []
   if (list.some((task) => task.status === 'paused')) {
     items.push({ key: 'resume-all', label: t('tasks.resumeAll') })
   }
   if (list.some((task) => task.status === 'active')) {
     items.push({ key: 'pause-all', label: t('tasks.pauseAll') })
   }
+  items.push({ key: 'export', label: t('chat.exportChat') })
   items.push({ key: 'delete-all', label: t('tasks.deleteAll'), danger: true })
   return items
 })
@@ -175,17 +183,17 @@ const taskCtx = ref<{ x: number; y: number; task: ScheduledTask } | null>(null)
 const taskCtxItems = computed(() => {
   const task = taskCtx.value?.task
   if (!task) return []
-  const items: { key: string; label: string; danger?: boolean }[] = [
-    { key: 'run', label: t('tasks.runNow') },
-    { key: 'export', label: t('chat.exportChat') },
-    { key: 'edit', label: t('tasks.edit') },
-  ]
+  const items: { key: string; label: string; danger?: boolean }[] = []
+  // 暂停/恢复置顶：右键最常见的意图就是启停
   if (task.status !== 'done') {
     items.push({
       key: 'pause',
       label: task.status === 'paused' ? t('tasks.resume') : t('tasks.pause'),
     })
   }
+  items.push({ key: 'run', label: t('tasks.runNow') })
+  items.push({ key: 'edit', label: t('tasks.edit') })
+  items.push({ key: 'export', label: t('chat.exportChat') })
   items.push({ key: 'delete', label: t('common.delete'), danger: true })
   return items
 })
@@ -289,6 +297,7 @@ async function onFormSaved(conversationId: string) {
               :conversation="c"
               :name="displayOf(c).name"
               :avatar="displayOf(c).avatar"
+              :group-members="groupMembersOf(c)"
               :active="c.id === activeId"
               :typing="conversationStore.isTyping(c.id)"
               :badge="c.type === 'group' ? groupBadge(c)?.label : undefined"

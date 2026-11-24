@@ -10,6 +10,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useUserStore } from '@/stores/user'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { showToast } from '@/composables/toast'
+import { useQuestionNav } from '@/composables/questionNav'
 import MessageBubble from '@/components/common/MessageBubble.vue'
 import ContextMenu from '@/components/common/ContextMenu.vue'
 import { copyImage, copyText } from '@/utils/clipboard'
@@ -96,6 +97,16 @@ async function loadMore() {
 }
 
 const listRef = ref<HTMLElement | null>(null)
+
+// ---------- 提问导航条：消息区右缘贴滚动条的刻度条，「我发出的提问」每条一个刻度（DeepSeek 风格） ----------
+// 悬停任意刻度展开附近提问索引面板（卡片式，悬停行钉在其刻度旁、滚轮式缩放变淡）；移入面板后同一套滚轮跟随鼠标（行悬停滑窗+滚轮滚动）、点击平滑跳转、可视高亮。共享逻辑在 composables/questionNav.ts；
+// 只读归档无音乐律动，仅纯刻度。「我发的」用 isSelf 判定（QQ 外部成员消息不算），气泡展示的 :self 口径不变
+const { navMarks, navActiveIds, navHoverId, navPanelOpen, navPanelItems, navItemStyle, navItemHovered, navPanelStyle, hoverNavMark, hoverNavItem, rollNavPanel, openNavPanel, scheduleNavPanelClose, closeNavPanelNow, jumpToMsg, navOnScroll } =
+  useQuestionNav({
+    listRef,
+    messages,
+    source: () => [props.id, messages.value.length] as const,
+  })
 
 // 切换历史会话时组件被路由复用（仅参数变化）：等新消息就绪后在同一帧「换内容 + 滚动归零」，避免闪烁
 watch(
@@ -227,16 +238,16 @@ async function exportChat() {
 
 /** 页头「更多」菜单：低频操作（导出等）收纳处 */
 const moreCtx = ref<{ x: number; y: number } | null>(null)
-/** 菜单顺序全局统一：不影响数据 → 更新数据 → 删除数据；与列表右键菜单一致 */
+/** 菜单顺序全局统一：更新数据 → 导出（紧邻删除正上方）→ 删除数据；与列表右键菜单一致 */
 const moreItems = computed(() => {
   const items: { key: string; label: string; danger?: boolean }[] = []
   const c = conv.value
   if (!c) return items
-  items.push({ key: 'export', label: t('chat.exportChat') })
   // 任务归档只能恢复任务；通道归档（微信/QQ）不可恢复聊天
   if (c.category === 'task') items.push({ key: 'restore-task', label: t('history.restoreTask') })
   else if (c.channel !== 'wechat' && c.channel !== 'qq')
     items.push({ key: 'continue', label: restoring.value ? t('history.restoring') : t('history.continueChat') })
+  items.push({ key: 'export', label: t('chat.exportChat') })
   items.push({ key: 'delete', label: t('common.delete'), danger: true })
   return items
 })
@@ -300,29 +311,70 @@ async function onMsgCtxSelect(key: string) {
       </button>
     </header>
 
-    <div ref="listRef" class="message-list">
-      <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
-        {{ loadingMore ? t('history.loading') : t('history.loadMore') }}
-      </button>
-      <template v-for="(msg, i) in messages" :key="msg.id">
-        <div v-if="shouldShowDivider(i)" class="time-divider">
-          {{ formatDividerTime(msg.timestamp) }}
+    <div class="list-wrap">
+      <div ref="listRef" class="message-list" @scroll="navOnScroll">
+        <button v-if="hasMore" class="load-more" :disabled="loadingMore" @click="loadMore">
+          {{ loadingMore ? t('history.loading') : t('history.loadMore') }}
+        </button>
+        <template v-for="(msg, i) in messages" :key="msg.id">
+          <div v-if="shouldShowDivider(i)" class="time-divider">
+            {{ formatDividerTime(msg.timestamp) }}
+          </div>
+          <div v-if="msg.senderType === 'system'" class="system-note">{{ msg.content }}</div>
+          <MessageBubble
+            v-else
+            :message="msg"
+            :self="msg.senderType === 'user'"
+            :data-nav-id="isSelf(msg) ? msg.id : undefined"
+            :sender-name="senderInfo(msg).name"
+            :sender-avatar="senderInfo(msg).avatar"
+            :badge="senderBadge(msg)"
+            :show-name="isExternal(msg)"
+            :avatar-navigable="senderAgent(msg) !== undefined"
+            @bubble-menu="openMsgCtx($event, msg)"
+            @avatar-open="openAgentProfile(msg)"
+          />
+        </template>
+        <div v-if="messages.length === 0" class="empty">{{ t('history.noMessages') }}</div>
+      </div>
+
+      <!-- 提问导航条：我发出的提问每条一个刻度贴滚动条左侧；悬停任意刻度展开全部提问索引面板，点击跳转 -->
+      <div v-if="navMarks.length >= 2" class="msg-nav">
+        <div
+          v-for="m in navMarks"
+          :key="m.id"
+          class="msg-nav-mark"
+          :class="{ active: navActiveIds.includes(m.id), hover: navHoverId === m.id }"
+          :style="{ top: `calc(50% + ${m.off}px)` }"
+          @click="jumpToMsg(m.id)"
+          @mouseenter="hoverNavMark(m)"
+          @mouseleave="scheduleNavPanelClose()"
+        ></div>
+        <!-- 悬停刻度展开的提问面板（卡片式）：悬停行钉在其刻度旁使弹窗与刻度融合；
+             移入面板后同一套滚轮跟随鼠标——行悬停滑窗、滚轮逐格滚，内容从鼠标底下滚过（卡片 top 钉死） -->
+        <div
+          v-if="navPanelOpen"
+          class="msg-nav-panel"
+          :style="navPanelStyle()"
+          @mouseenter="openNavPanel"
+          @mouseleave="scheduleNavPanelClose"
+          @wheel.prevent="rollNavPanel($event.deltaY)"
+        >
+          <!-- 按窗口内位置作 key：滑窗时行原位换内容不移节点，缩放/透明度必被重补丁（滚轮槽位固定） -->
+          <button
+            v-for="(m, i) in navPanelItems"
+            :key="i"
+            type="button"
+            class="msg-nav-item"
+            :class="{ hover: navItemHovered(i, m.id), active: navActiveIds.includes(m.id) }"
+            :style="navItemStyle(i)"
+            @mouseenter="hoverNavItem(i, m)"
+            @click="jumpToMsg(m.id); closeNavPanelNow()"
+          >
+            <span class="txt">{{ m.preview }}</span>
+          </button>
         </div>
-        <div v-if="msg.senderType === 'system'" class="system-note">{{ msg.content }}</div>
-        <MessageBubble
-          v-else
-          :message="msg"
-          :self="msg.senderType === 'user'"
-          :sender-name="senderInfo(msg).name"
-          :sender-avatar="senderInfo(msg).avatar"
-          :badge="senderBadge(msg)"
-          :show-name="isExternal(msg)"
-          :avatar-navigable="senderAgent(msg) !== undefined"
-          @bubble-menu="openMsgCtx($event, msg)"
-          @avatar-open="openAgentProfile(msg)"
-        />
-      </template>
-      <div v-if="messages.length === 0" class="empty">{{ t('history.noMessages') }}</div>
+      </div>
     </div>
 
     <ContextMenu
@@ -460,5 +512,152 @@ async function onMsgCtxSelect(key: string) {
   margin: auto;
   font-size: $font-size-sm;
   color: $text-tertiary;
+}
+
+/* 导航条的定位容器：包住 message-list，刻度条绝对定位贴其右缘 */
+.list-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* 提问导航条：贴滚动条左侧的细刻度条，「我发出的提问」≥2 条且内容可滚动时出现。
+   样式与 ChatView 保持一致；归档只读无音乐律动，刻度恒定 12px 长 */
+.msg-nav {
+  position: absolute;
+  top: $spacing-lg;
+  bottom: $spacing-lg;
+  /* 6px 滚动条 + 2px 空隙：贴在滚动条左侧 */
+  right: 8px;
+  width: 16px;
+  z-index: 15;
+  /* 空白区域不拦截消息点击，只有刻度本身可交互 */
+  pointer-events: none;
+}
+
+.msg-nav-mark {
+  position: absolute;
+  right: 0;
+  width: 16px;
+  /* 刻度线 3px，盒高与密排步长一致（12px），悬停区正好铺满不留缝 */
+  height: 12px;
+  margin-top: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: auto;
+  cursor: pointer;
+
+  &::before {
+    content: '';
+    flex-shrink: 0;
+    width: 12px;
+    height: 3px;
+    border-radius: 2px;
+    /* 次级文本色而非边框色：深色主题下边框色只有 8% 白，刻度会隐形 */
+    background: var(--c-text-secondary);
+    opacity: 0.55;
+    transition: background $transition-fast;
+  }
+
+  &:hover::before,
+  &.hover::before {
+    width: 16px;
+    background: $primary-color;
+    opacity: 1;
+  }
+
+  &.active::before {
+    background: $primary-color;
+    opacity: 0.6;
+  }
+
+  &.active:hover::before {
+    opacity: 1;
+  }
+}
+
+/* 悬停刻度展开的提问面板（卡片式）：卡片贴着刻度条，悬停行钉在其刻度旁
+ * （top 由 navPanelStyle 行内钳制计算），指到哪个刻度、卡片正对它的就是那行，弹窗与刻度融合；
+ * top 过渡让卡片像刻度一样沿条平滑滑行，而非逐格瞬跳 */
+.msg-nav-panel {
+  position: absolute;
+  right: 22px;
+  width: 320px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  border-radius: $radius-sm;
+  box-shadow: $shadow-md;
+  pointer-events: auto;
+  transition: top 0.18s ease;
+
+  /* 隐形桥：面板右缘与刻度盒之间有 6px 死区（面板 right:22px 相对刻度条，右缘落在条外），
+   * 慢速跨界时 180ms 宽限兜不住会闪关。桥向右盖满缝隙并压进刻度盒 2px，
+   * 桥是面板自身的一部分——鼠标在缝上仍算在面板内，mouseleave 压根不触发 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -8px;
+    width: 8px;
+  }
+}
+
+.msg-nav-item {
+  /* 行高固定：与刻度等距排列对应，缩放行不挤不跳 */
+  height: 26px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0 8px;
+  border: none;
+  border-radius: $radius-sm;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: $font-size-xs;
+  /* 滚轮：行盒子不缩（布局稳定），内容缩放+变淡；向右缘（刻度侧）收缩保持融合感；
+     高亮背景与刻度一样平滑过渡，悬停行切换时旧行淡出、新行淡入 */
+  transform-origin: right center;
+  transition: transform 0.15s ease, opacity 0.15s ease, background-color $transition-fast;
+  will-change: transform, opacity;
+
+  .txt {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: $text-primary;
+  }
+
+  &.hover,
+  &:hover {
+    background: $bg-hover;
+  }
+}
+
+/* 点击导航刻度跳转后目标气泡的短暂描边提示 */
+.message-list .nav-flash {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  animation: nav-flash-outline 1.4s ease forwards;
+}
+
+@keyframes nav-flash-outline {
+  0% {
+    outline-color: rgba(var(--c-primary-rgb), 0.9);
+  }
+  70% {
+    outline-color: rgba(var(--c-primary-rgb), 0.45);
+  }
+  100% {
+    outline-color: transparent;
+  }
 }
 </style>

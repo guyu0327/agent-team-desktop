@@ -78,8 +78,8 @@ const ctx = ref<{ x: number; y: number; preset: ModelPreset } | null>(null)
 const applyTarget = ref<ModelPreset | null>(null)
 
 const ctxItems = computed(() => [
-  { key: 'edit', label: t('common.edit') },
   { key: 'apply', label: t('models.applyAgents') },
+  { key: 'edit', label: t('common.edit') },
   { key: 'delete', label: t('common.delete'), danger: true },
 ])
 

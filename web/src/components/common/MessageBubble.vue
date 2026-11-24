@@ -288,10 +288,14 @@ async function openToolPath(path: string) {
   if (err) showToast(err)
 }
 
+// 模板是双根（气泡 + Teleport 图片查看器），Vue 对多根组件禁用透传——改为手动继承，
+// 否则父级的 data-nav-id（提问导航条的定位锚点）会静默丢失
+defineOptions({ inheritAttrs: false })
+
 </script>
 
 <template>
-  <div class="message-bubble" :class="{ self }">
+  <div class="message-bubble" :class="{ self }" v-bind="$attrs">
     <Avatar
       :name="senderName"
       :avatar="senderAvatar"
@@ -344,7 +348,8 @@ async function openToolPath(path: string) {
           </template>
         </div>
         <div v-if="thinking" ref="thinkingEl" class="thinking-stream">{{ thinking }}</div>
-        <div v-if="typing && !message.content" class="typing">
+        <!-- 点动画只在「还没有任何文本」时出现：正文或思考流文本任一到达即隐藏，思考文字本身就是进行中的信号 -->
+        <div v-if="typing && !message.content && !thinking" class="typing">
           <span></span><span></span><span></span>
         </div>
         <span v-else-if="self || message.type === 'error'" class="plain">{{ message.content }}</span>

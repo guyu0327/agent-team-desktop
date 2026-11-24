@@ -49,14 +49,14 @@ const agentSkills = computed(() =>
     .filter((s): s is NonNullable<typeof s> => !!s),
 )
 
+/** 详情卡元信息：模型预设（有绑定时可点跳预设详情页）+ 温度；
+ *  API 地址/Key 属预设的敏感配置，这里不再展示，要看去模型页 */
 const metaRows = computed(() => {
   if (!agent.value) return []
   const preset = agent.value.presetId ? presetStore.findById(agent.value.presetId) : undefined
   return [
-    { label: t('contact.presetLabel'), value: preset ? preset.name : t('contact.noPresetChat') },
-    { label: t('contact.apiLabel'), value: preset ? preset.baseUrl : t('contact.notSet') },
-    { label: t('contact.keyLabel'), value: preset?.hasKey ? t('contact.keyConfigured') : t('contact.keyMissing') },
-    { label: t('contact.tempLabel'), value: String(agent.value.temperature) },
+    { label: t('contact.presetLabel'), value: preset ? preset.name : t('contact.noPresetChat'), to: preset ? `/models/${preset.id}` : '' },
+    { label: t('contact.tempLabel'), value: String(agent.value.temperature), to: '' },
   ]
 })
 
@@ -99,7 +99,9 @@ async function remove() {
         <div class="meta-list">
           <div v-for="row in metaRows" :key="row.label" class="meta-row">
             <span class="label">{{ row.label }}</span>
-            <span class="value" :class="{ warn: row.value === t('contact.keyMissing') }">{{ row.value }}</span>
+            <!-- 模型预设可点：跳到该预设的详情页（未绑定时显示灰色占位不可点） -->
+            <span v-if="row.to" class="value clickable" @click="router.push(row.to)">{{ row.value }}</span>
+            <span v-else class="value" :class="{ muted: row.label === t('contact.presetLabel') }">{{ row.value }}</span>
           </div>
           <div class="meta-row column">
             <span class="label">{{ t('contact.promptLabel') }}</span>
@@ -241,12 +243,13 @@ async function remove() {
     color: $text-primary;
     word-break: break-all;
 
-    &.warn {
-      color: #fa9d3b;
-    }
-
     &.muted {
       color: $text-tertiary;
+    }
+
+    /* 模型预设可点跳预设详情页：不加配色高亮，仅保留手型光标示意可点 */
+    &.clickable {
+      cursor: pointer;
     }
   }
 

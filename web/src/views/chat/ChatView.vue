@@ -26,6 +26,8 @@ import { copyImage, copyText } from '@/utils/clipboard'
 import { showToast } from '@/composables/toast'
 import { desktop, pathBasename } from '@/api/desktop'
 import { useRealtimeVoice } from '@/composables/realtimeVoice'
+import { useMusicDance } from '@/composables/musicDance'
+import { useQuestionNav } from '@/composables/questionNav'
 import { t } from '@/i18n'
 
 const props = defineProps<{ id: string }>()
@@ -579,10 +581,12 @@ function resetInputHeight() {
 
 function onWindowResize() {
   if (inputHeight.value != null) inputHeight.value = clampInputHeight(inputHeight.value)
+  computeNavMarks()
 }
 
 onMounted(() => {
   void rtRefresh()
+  danceResume() // 上次开着律动：进会话即恢复；无手势时自动挂到首次点击
   window.addEventListener('pointerup', onReleaseAnywhere)
   window.addEventListener('pointercancel', onReleaseAnywhere)
   window.addEventListener('resize', onWindowResize)
@@ -707,6 +711,7 @@ function onListScroll() {
     stickToBottom.value = false
   }
   lastScrollTop = el.scrollTop
+  navOnScroll()
 }
 
 async function scrollToBottom() {
@@ -729,9 +734,80 @@ function jumpToBottom() {
   forceScrollToBottom()
 }
 
+// ---------- 音乐律动：电脑播放的声音经系统回环采集，导航刻度按频段像频谱柱一样跳动 ----------
+
+const {
+  active: danceActive,
+  start: danceStart,
+  stop: danceStop,
+  resumeIfNeeded: danceResume,
+  setCount: danceSetCount,
+  setPainter: danceSetPainter,
+} = useMusicDance()
+const danceToggling = ref(false)
+
+// 采集授权可耗时数秒，处理中给脉冲反馈，避免误以为没点上而重复点击把刚开的又关掉
+async function toggleDance() {
+  if (danceToggling.value) return
+  danceToggling.value = true
+  try {
+    if (danceActive.value) danceStop()
+    else await danceStart()
+  } catch (e) {
+    console.warn('[musicDance] 采集系统声音失败', e)
+    showToast(t('chat.musicDanceFailed'))
+  } finally {
+    danceToggling.value = false
+  }
+}
+
+// ---------- 提问导航条：消息区右缘贴滚动条的刻度条，「我发出的提问」每条一个刻度（DeepSeek 风格） ----------
+// 悬停任意刻度展开附近提问索引面板（卡片式，悬停行钉在其刻度旁、滚轮式缩放变淡）；移入面板后同一套滚轮跟随鼠标（行悬停滑窗+滚轮滚动）、点击平滑跳转、可视高亮；律动开启时上下补淡色辅助条。共享逻辑在 composables/questionNav.ts
+const {
+  navMarks,
+  danceFillers,
+  navActiveIds,
+  navHoverId,
+  navPanelOpen,
+  navPanelItems,
+  navItemStyle,
+  navItemHovered,
+  navPanelStyle,
+  hoverNavMark,
+  hoverNavItem,
+  rollNavPanel,
+  openNavPanel,
+  scheduleNavPanelClose,
+  closeNavPanelNow,
+  computeNavMarks,
+  jumpToMsg,
+  navOnScroll,
+} = useQuestionNav({
+  listRef,
+  messages,
+  source: () => [props.id, messages.value.length] as const,
+  fillersEnabled: danceActive,
+  onSlots: danceSetCount,
+})
+
+// 频谱→刻度：直接写行内 CSS 变量，绕开 Vue 响应式，60fps 无渲染开销。
+// 辅助条与真刻度按 data-slot 对号入座（文档序与槽位序不同），导航条是 .message-list 的
+// 兄弟节点（挂在 .list-wrap 上），不能从 listRef 里查
+danceSetPainter((amps) => {
+  const nodes = document.querySelectorAll<HTMLElement>('.msg-nav [data-slot]')
+  nodes.forEach((el) => {
+    const v = amps[Number(el.dataset.slot)] ?? 0
+    el.style.setProperty('--amp', v.toFixed(3))
+  })
+})
+
 // 常驻订阅扇出事件：微信等后台触发的回合没有本地发送方，正在查看该会话时靠它实时看到流式输出。
 // 普通本地发送的事件只走各自请求的响应流，不会向观察者扇出，两路处理不会重复
 let stopWatch: (() => void) | null = null
+
+// 输入区草稿按会话留存：键入即写入 store（仅内存——切页/切会话保留、重启软件清空）；
+// 切换会话时 props.id 的 watch 恢复对应草稿，顺带修掉草稿跨会话串门的旧问题
+watch(draft, (text) => conversationStore.setChatDraft(props.id, text))
 
 watch(
   () => props.id,
@@ -740,6 +816,8 @@ watch(
     stopWatch?.()
     mention.value = null
     pendingAttachments.value = []
+    // 恢复该会话的输入草稿（仅内存，重启即清）
+    draft.value = conversationStore.chatDraftByConv[id] ?? ''
     conversationStore.setActive(id)
     forceScrollToBottom()
     stopWatch = conversationStore.watchConversation(id)
@@ -1064,6 +1142,7 @@ function onKeydown(e: KeyboardEvent) {
             :thinking="conversationStore.thinkingByMsg[msg.id]"
             :mentionable="conversation?.type === 'group' && !isSelf(msg)"
             :avatar-navigable="senderAgent(msg) !== undefined"
+            :data-nav-id="isSelf(msg) ? msg.id : undefined"
             @bubble-menu="openMsgCtx($event, msg)"
             @avatar-open="openAgentProfile(msg)"
             @avatar-menu="openAvatarCtx($event, msg)"
@@ -1075,7 +1154,8 @@ function onKeydown(e: KeyboardEvent) {
             <span v-if="thinkingAgent" class="thinking-name">{{ thinkingAgent.name }}</span>
             <div class="thinking-bubble">
               <div v-if="thinkingText" ref="thinkingStreamEl" class="thinking-stream">{{ thinkingText }}</div>
-              <span class="dots"><span></span><span></span><span></span></span>
+              <!-- 点动画只在思考文本尚未到达时显示，文字开始流出后由文字本身承担进行中信号 -->
+              <span v-else class="dots"><span></span><span></span><span></span></span>
             </div>
           </div>
         </div>
@@ -1128,6 +1208,54 @@ function onKeydown(e: KeyboardEvent) {
           <path d="M12 5v14M19 12l-7 7-7-7" />
         </svg>
       </button>
+
+      <!-- 提问导航条：我发出的提问每条一个刻度贴滚动条左侧；悬停任意刻度展开全部提问索引面板，点击跳转；律动开启时上下补淡色辅助条 -->
+      <div v-if="navMarks.length >= 2" class="msg-nav">
+        <div
+          v-for="m in navMarks"
+          :key="m.id"
+          class="msg-nav-mark"
+          :class="{ active: navActiveIds.includes(m.id), hover: navHoverId === m.id }"
+          :style="{ top: `calc(50% + ${m.off}px)` }"
+          :data-slot="m.slot"
+          @click="jumpToMsg(m.id)"
+          @mouseenter="hoverNavMark(m)"
+          @mouseleave="scheduleNavPanelClose()"
+        ></div>
+        <template v-if="danceActive">
+          <div
+            v-for="f in danceFillers"
+            :key="`filler-${f.slot}`"
+            class="msg-nav-filler"
+            :style="{ top: `calc(50% + ${f.off}px)` }"
+            :data-slot="f.slot"
+          />
+        </template>
+        <!-- 悬停刻度展开的提问面板（卡片式）：悬停行钉在其刻度旁使弹窗与刻度融合；
+             移入面板后同一套滚轮跟随鼠标——行悬停滑窗、滚轮逐格滚，内容从鼠标底下滚过（卡片 top 钉死） -->
+        <div
+          v-if="navPanelOpen"
+          class="msg-nav-panel"
+          :style="navPanelStyle()"
+          @mouseenter="openNavPanel"
+          @mouseleave="scheduleNavPanelClose"
+          @wheel.prevent="rollNavPanel($event.deltaY)"
+        >
+          <!-- 按窗口内位置作 key：滑窗时行原位换内容不移节点，缩放/透明度必被重补丁（滚轮槽位固定） -->
+          <button
+            v-for="(m, i) in navPanelItems"
+            :key="i"
+            type="button"
+            class="msg-nav-item"
+            :class="{ hover: navItemHovered(i, m.id), active: navActiveIds.includes(m.id) }"
+            :style="navItemStyle(i)"
+            @mouseenter="hoverNavItem(i, m)"
+            @click="jumpToMsg(m.id); closeNavPanelNow()"
+          >
+            <span class="txt">{{ m.preview }}</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-if="coordinator || discussing" class="coordination-tip">
@@ -1242,6 +1370,18 @@ function onKeydown(e: KeyboardEvent) {
             <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke-linecap="round" />
           </svg>
         </span>
+        <span
+          class="tool dance"
+          :class="{ live: danceActive, pending: danceToggling }"
+          :title="t('chat.musicDanceTip')"
+          @click="toggleDance"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M9 18V5l11-2v12" stroke-linecap="round" stroke-linejoin="round" />
+            <circle cx="6.5" cy="18" r="2.5" />
+            <circle cx="17.5" cy="15" r="2.5" />
+          </svg>
+        </span>
       </div>
       <textarea
         ref="inputRef"
@@ -1346,6 +1486,169 @@ function onKeydown(e: KeyboardEvent) {
   &:hover {
     color: $primary-color;
     border-color: $primary-color;
+  }
+}
+
+/* 提问导航条：贴滚动条左侧的细刻度条，「我发出的提问」≥2 条且内容可滚动时出现 */
+.msg-nav {
+  position: absolute;
+  top: $spacing-lg;
+  bottom: $spacing-lg;
+  /* 6px 滚动条 + 2px 空隙：贴在滚动条左侧 */
+  right: 8px;
+  width: 16px;
+  z-index: 15;
+  /* 空白区域不拦截消息点击，只有刻度本身可交互 */
+  pointer-events: none;
+}
+
+.msg-nav-mark {
+  position: absolute;
+  right: 0;
+  width: 16px;
+  /* 刻度线 3px，盒高与密排步长一致（12px），悬停区正好铺满不留缝 */
+  height: 12px;
+  margin-top: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: auto;
+  cursor: pointer;
+
+  &::before {
+    content: '';
+    /* 音乐律动：--amp 由 rAF 直接写元素行内变量（0~1 频谱能量），刻度向左伸展并增厚提亮；
+       flex-shrink:0 放行溢出（右对齐向左长），否则伸展会被 16px 盒子钳回；
+       width/height/opacity 不加 transition，60fps 逐帧写值叠加过渡会发闷 */
+    flex-shrink: 0;
+    width: calc(12px + var(--amp, 0) * 12px);
+    height: calc(3px + var(--amp, 0) * 2px);
+    border-radius: 2px;
+    /* 次级文本色而非边框色：深色主题下边框色只有 8% 白，刻度会隐形 */
+    background: var(--c-text-secondary);
+    opacity: calc(0.55 + var(--amp, 0) * 0.45);
+    transition: background $transition-fast;
+  }
+
+  &:hover::before,
+  &.hover::before {
+    width: 16px;
+    background: $primary-color;
+    opacity: 1;
+  }
+
+  &.active::before {
+    background: $primary-color;
+    opacity: calc(0.6 + var(--amp, 0) * 0.4);
+  }
+
+  &.active:hover::before {
+    opacity: 1;
+  }
+}
+
+/* 律动辅助条：填充真刻度上下的空档，颜色更淡、不可交互，让整条像一段完整声谱 */
+.msg-nav-filler {
+  position: absolute;
+  right: 0;
+  width: 16px;
+  height: 12px;
+  margin-top: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+
+  &::before {
+    content: '';
+    flex-shrink: 0;
+    width: calc(8px + var(--amp, 0) * 10px);
+    height: 3px;
+    border-radius: 2px;
+    background: var(--c-text-secondary);
+    opacity: calc(0.16 + var(--amp, 0) * 0.4);
+  }
+}
+
+/* 悬停刻度展开的提问面板（卡片式）：卡片贴着刻度条，悬停行钉在其刻度旁
+ * （top 由 navPanelStyle 行内钳制计算），指到哪个刻度、卡片正对它的就是那行，弹窗与刻度融合；
+ * top 过渡让卡片像刻度一样沿条平滑滑行，而非逐格瞬跳 */
+.msg-nav-panel {
+  position: absolute;
+  right: 22px;
+  width: 320px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: $bg-panel;
+  border: 1px solid $border-color;
+  border-radius: $radius-sm;
+  box-shadow: $shadow-md;
+  pointer-events: auto;
+  transition: top 0.18s ease;
+
+  /* 隐形桥：面板右缘与刻度盒之间有 6px 死区（面板 right:22px 相对刻度条，右缘落在条外），
+   * 慢速跨界时 180ms 宽限兜不住会闪关。桥向右盖满缝隙并压进刻度盒 2px，
+   * 桥是面板自身的一部分——鼠标在缝上仍算在面板内，mouseleave 压根不触发 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -8px;
+    width: 8px;
+  }
+}
+
+.msg-nav-item {
+  /* 行高固定：与刻度等距排列对应，缩放行不挤不跳 */
+  height: 26px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0 8px;
+  border: none;
+  border-radius: $radius-sm;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: $font-size-xs;
+  /* 滚轮：行盒子不缩（布局稳定），内容缩放+变淡；向右缘（刻度侧）收缩保持融合感；
+     高亮背景与刻度一样平滑过渡，悬停行切换时旧行淡出、新行淡入 */
+  transform-origin: right center;
+  transition: transform 0.15s ease, opacity 0.15s ease, background-color $transition-fast;
+  will-change: transform, opacity;
+
+  .txt {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: $text-primary;
+  }
+
+  &.hover,
+  &:hover {
+    background: $bg-hover;
+  }
+}
+
+/* 点击导航刻度跳转后目标气泡的短暂描边提示 */
+.message-list .nav-flash {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  animation: nav-flash-outline 1.4s ease forwards;
+}
+
+@keyframes nav-flash-outline {
+  0% {
+    outline-color: rgba(var(--c-primary-rgb), 0.9);
+  }
+  70% {
+    outline-color: rgba(var(--c-primary-rgb), 0.45);
+  }
+  100% {
+    outline-color: transparent;
   }
 }
 
@@ -2096,6 +2399,18 @@ function onKeydown(e: KeyboardEvent) {
 
     &.live {
       color: #07c160;
+      animation: mic-pulse 1.2s infinite ease-in-out;
+    }
+  }
+
+  .dance {
+    &.live {
+      color: $primary-color;
+    }
+
+    /* 采集授权可耗时数秒：脉冲提示处理中，别重复点击 */
+    &.pending {
+      color: $text-primary;
       animation: mic-pulse 1.2s infinite ease-in-out;
     }
   }

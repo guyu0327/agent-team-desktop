@@ -488,20 +488,16 @@ async function exportChat() {
 
 /** 页头「更多」菜单：任务操作与导出全部收纳于此，页头只留标题与状态 */
 const moreCtx = ref<{ x: number; y: number } | null>(null)
-/** 菜单顺序全局统一：不影响数据 → 更新数据 → 删除数据 */
+/** 菜单顺序全局统一：更新数据 → 导出（紧邻删除正上方）→ 删除数据 */
 const moreItems = computed(() => {
   const items: { key: string; label: string; danger?: boolean }[] = []
   const task = currentTask.value
-  // 顶部：不影响数据
-  if (task && !running.value) items.push({ key: 'run', label: t('tasks.runNow') })
-  items.push({ key: 'export', label: t('chat.exportChat') })
-  // 中间：更新数据（单个任务操作在前，批量在后）
-  if (task) {
-    items.push({ key: 'edit', label: t('tasks.edit') })
-    if (task.status !== 'done') {
-      items.push({ key: 'pause', label: task.status === 'paused' ? t('tasks.resume') : t('tasks.pause') })
-    }
+  // 顶部：启停最常用放最上（与列表右键一致）
+  if (task && task.status !== 'done') {
+    items.push({ key: 'pause', label: task.status === 'paused' ? t('tasks.resume') : t('tasks.pause') })
   }
+  if (task && !running.value) items.push({ key: 'run', label: t('tasks.runNow') })
+  if (task) items.push({ key: 'edit', label: t('tasks.edit') })
   // 批量操作属主体层级：仅在未选中单个任务时出现（与列表右键一致）；协作任务群只有一个任务不展示
   if (!task && conversation.value?.type !== 'group') {
     if (tasks.value.some((x) => x.status === 'paused'))
@@ -509,7 +505,8 @@ const moreItems = computed(() => {
     if (tasks.value.some((x) => x.status === 'active'))
       items.push({ key: 'pause-all', label: t('tasks.pauseAll') })
   }
-  // 底部：删除数据
+  // 底部：导出紧邻删除正上方
+  items.push({ key: 'export', label: t('chat.exportChat') })
   if (task) items.push({ key: 'delete', label: t('common.delete'), danger: true })
   if (!task && conversation.value?.type !== 'group')
     items.push({ key: 'delete-all', label: t('tasks.deleteAll'), danger: true })
@@ -619,7 +616,8 @@ async function onMoreSelect(key: string) {
             <span v-if="thinkingAgent" class="thinking-name">{{ thinkingAgent.name }}</span>
             <div class="thinking-bubble">
               <div v-if="thinkingText" ref="thinkingStreamEl" class="thinking-stream">{{ thinkingText }}</div>
-              <span class="dots"><span></span><span></span><span></span></span>
+              <!-- 点动画只在思考文本尚未到达时显示，文字开始流出后由文字本身承担进行中信号 -->
+              <span v-else class="dots"><span></span><span></span><span></span></span>
             </div>
           </div>
         </div>
