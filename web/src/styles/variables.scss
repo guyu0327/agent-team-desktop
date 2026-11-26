@@ -28,6 +28,11 @@ $bg-hover: var(--c-bg-hover);
 $border-color: var(--c-border);
 $border-light: var(--c-border-light);
 
+// 气泡内辅助折叠条（思考过程/浏览记录/工具调用）与展开面板的叠加配色
+$chip-bg: var(--c-chip-bg);
+$chip-bg-hover: var(--c-chip-bg-hover);
+$chip-border: var(--c-chip-border);
+
 // 间距
 $spacing-xs: 4px;
 $spacing-sm: 8px;

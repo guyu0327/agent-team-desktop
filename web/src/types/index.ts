@@ -15,10 +15,11 @@ export interface Agent {
   presetId: string
   /** 可选绑定的图像预设（文生图类），绑定的智能体才有 generate_image 生图工具 */
   imagePresetId: string
-  /** 为 true 时聊天中作为团队编排者，协调其他智能体协作 */
-  isOrchestrator: boolean
   systemPrompt: string
   temperature: number
+  /** 单条回复字数范围（提示词软引导，非硬截断）：min 0=不限下限；max≤0=不限；默认 0–120 */
+  replyMinChars: number
+  replyMaxChars: number
   /** 启用的技能 ID 列表（技能目录名），聊天中智能体按需加载 */
   skillIds: string[]
 }
@@ -76,6 +77,8 @@ export interface Conversation {
   memberIds: string[]
   /** 群聊聊天模式：passive（@谁谁回）| free（成员接龙自由讨论） */
   chatMode?: 'passive' | 'free'
+  /** 群聊编排者（会话角色，非智能体全局身份）：被动模式由他协调；空=未设置，全员依次回复 */
+  hostAgentId?: string | null
   pinned?: boolean
   lastMessage: string
   lastMessageTime: number | null

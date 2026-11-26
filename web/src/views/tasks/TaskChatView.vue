@@ -102,23 +102,26 @@ const singleAgent = computed(() => {
     : null
 })
 
-/** 协作任务群成员（点击头部「（N人）」展示），编排者排第一 */
+/** 协作任务群成员（点击头部「（N人）」展示），编排者（会话角色）排第一 */
 const memberAgents = computed<Agent[]>(() => {
   const conv = conversation.value
   if (conv?.type !== 'group') return []
   return conv.memberIds
     .map((id) => agentStore.getById(id))
     .filter((a): a is Agent => !!a)
-    .sort((a, b) => Number(b.isOrchestrator) - Number(a.isOrchestrator))
+    .sort((a, b) => Number(b.id === conv.hostAgentId) - Number(a.id === conv.hostAgentId))
 })
 
 const showMembers = ref(false)
 
 const coordinator = computed(() => {
   if (!conversationStore.isCoordinating(props.id)) return null
-  const agentId = conversationStore.orchestratingByConv[props.id]
-  return agentId ? (agentStore.getById(agentId) ?? null) : null
+  const cur = conversationStore.orchestratingByConv[props.id]
+  return cur ? (agentStore.getById(cur.agentId) ?? null) : null
 })
+
+/** 协调横幅模式：task=编排者自己执行任务，team=团队协作（任务协作群，缺省 team） */
+const teamMode = computed(() => conversationStore.orchestratingByConv[props.id]?.mode !== 'task')
 
 const discussing = computed(() => conversationStore.isDiscussing(props.id))
 
@@ -199,11 +202,12 @@ function senderInfo(msg: Message): { name: string; avatar?: string } {
   return { name: agent?.name ?? t('common.unknownAgent'), avatar: agent?.avatar }
 }
 
-/** 任务线程内消息带任务名徽标，与同线程其他任务区分 */
+/** 任务线程内消息带任务名徽标，与同线程其他任务区分；群消息按会话编排者标注（会话角色，动态；自由讨论休眠不标） */
 function senderBadge(msg: Message): string | undefined {
   if (isSelf(msg)) return undefined
   if (msg.taskName) return msg.taskName
-  return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
+  if (conversation.value?.chatMode === 'free') return undefined
+  return conversation.value?.hostAgentId === msg.senderId ? t('common.host') : undefined
 }
 
 /** 消息发送者对应的智能体（自己/已删智能体为 undefined） */
@@ -369,7 +373,7 @@ function shouldShowDivider(index: number): boolean {
 }
 
 async function handleStopCoordination() {
-  const name = coordinator.value?.name ?? t('common.orchestrator')
+  const name = coordinator.value?.name ?? t('common.host')
   const ok = await confirmAction({
     title: t('chat.stop'),
     message: discussing.value ? t('chat.stopDiscussMsg') : t('chat.stopCoordMsg', { name }),
@@ -585,7 +589,7 @@ async function onMoreSelect(key: string) {
         <button v-for="a in memberAgents" :key="a.id" class="member-row" @click="showMembers = false">
           <Avatar :name="a.name" :avatar="a.avatar" :size="28" />
           <span class="member-name">{{ a.name }}</span>
-          <span v-if="a.isOrchestrator" class="member-badge">{{ t('common.orchestrator') }}</span>
+          <span v-if="a.id === conversation?.hostAgentId" class="member-badge">{{ t('common.host') }}</span>
         </button>
       </div>
     </template>
@@ -610,7 +614,7 @@ async function onMoreSelect(key: string) {
             @avatar-open="openAgentProfile(msg)"
           />
         </template>
-        <div v-if="showThinking" class="thinking-row">
+        <div v-if="showThinking && thinkingAgent" class="thinking-row">
           <Avatar v-if="thinkingAgent" :name="thinkingAgent.name" :avatar="thinkingAgent.avatar" :size="36" />
           <div class="thinking-col">
             <span v-if="thinkingAgent" class="thinking-name">{{ thinkingAgent.name }}</span>
@@ -654,7 +658,7 @@ async function onMoreSelect(key: string) {
 
     <div v-if="coordinator || discussing" class="coordination-tip">
       <span class="pulse"></span>
-      <span v-if="coordinator">{{ t('chat.coordinating', { name: coordinator.name }) }}</span>
+      <span v-if="coordinator">{{ teamMode ? t('chat.coordinating', { name: coordinator.name }) : t('chat.executingTask', { name: coordinator.name }) }}</span>
       <span v-else>{{ t('chat.discussingTip') }}</span>
       <button class="stop-btn" @click="handleStopCoordination">{{ t('chat.stop') }}</button>
     </div>

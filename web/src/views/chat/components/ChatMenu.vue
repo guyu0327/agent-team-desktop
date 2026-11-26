@@ -5,13 +5,13 @@ import { useRouter } from 'vue-router'
 import type { Agent, Conversation } from '@/types'
 import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
-import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
 import { resetGroupConversation } from '@/api/conversation'
 import { resetWechatConversation } from '@/api/wechat'
 import { resetQqConversation } from '@/api/qq'
 import { exportConversation } from '@/utils/chatExport'
 import Avatar from '@/components/common/Avatar.vue'
+import AddMemberModal from './AddMemberModal.vue'
 import { t } from '@/i18n'
 
 const props = defineProps<{ conversation: Conversation }>()
@@ -20,7 +20,6 @@ const emit = defineEmits<{ close: [] }>()
 const router = useRouter()
 const agentStore = useAgentStore()
 const conversationStore = useConversationStore()
-const presetStore = useModelPresetStore()
 
 const isWechat = computed(() => props.conversation.channel === 'wechat')
 const isQq = computed(() => props.conversation.channel === 'qq')
@@ -34,11 +33,9 @@ const members = computed(() =>
     .map((id) => agentStore.getById(id))
     .filter((a): a is Agent => !!a),
 )
-const candidates = computed(() =>
-  agentStore.agents.filter((a) => !props.conversation.memberIds.includes(a.id)),
-)
 
-const adding = ref(false)
+/** 拉人入群弹窗 */
+const showAdd = ref(false)
 const kicking = ref(false)
 const editingName = ref(false)
 const nameDraft = ref('')
@@ -169,6 +166,22 @@ async function toggleMode() {
   }
 }
 
+// —— 编排者（会话角色）：被动群在成员网格直接点「主持」标签换人；自由模式角色休眠不显示 ——
+const hostId = computed(() => props.conversation.hostAgentId ?? '')
+
+const showHostChips = computed(() =>
+  isGroup.value && currentMode.value !== 'free' && members.value.length > 1 && !kicking.value,
+)
+
+async function setHost(agent: Agent) {
+  if (agent.id === hostId.value) return
+  try {
+    await conversationStore.setGroupHost(props.conversation.id, agent.id)
+  } catch (e) {
+    alertAction(e instanceof Error ? e.message : t('chat.hostFailed'))
+  }
+}
+
 function saveName() {
   if (!editingName.value) return
   editingName.value = false
@@ -178,18 +191,8 @@ function saveName() {
   }
 }
 
-function toggleAdd() {
-  kicking.value = false
-  adding.value = !adding.value
-}
-
 function toggleKick() {
-  adding.value = false
   kicking.value = !kicking.value
-}
-
-function invite(agent: Agent) {
-  conversationStore.addGroupMembers(props.conversation.id, [agent.id])
 }
 
 function kick(agent: Agent) {
@@ -225,9 +228,18 @@ function openAgent(agent: Agent) {
             </span>
           </div>
           <span class="cell-name">{{ m.name }}</span>
+          <button
+            v-if="showHostChips"
+            class="host-chip"
+            :class="{ on: m.id === hostId }"
+            :title="m.id === hostId ? t('chat.isHost') : t('chat.setHost')"
+            @click.stop="setHost(m)"
+          >
+            {{ t('common.host') }}
+          </button>
         </div>
 
-        <button class="add-cell" :title="t('chat.addMember')" @click="toggleAdd">
+        <button class="add-cell" :title="t('chat.addMember')" @click="showAdd = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -242,21 +254,6 @@ function openAgent(agent: Agent) {
             <path d="M5 12h14" />
           </svg>
         </button>
-      </div>
-
-      <div v-if="adding" class="candidate-list">
-        <div class="section-title">{{ t('chat.pickMember') }}</div>
-        <button
-          v-for="c in candidates"
-          :key="c.id"
-          class="candidate-row"
-          @click="invite(c)"
-        >
-          <Avatar :name="c.name" :avatar="c.avatar" :size="28" />
-          <span class="cand-name">{{ c.name }}</span>
-          <span class="cand-model">{{ presetStore.findById(c.presetId)?.name ?? t('common.noPreset') }}</span>
-        </button>
-        <div v-if="candidates.length === 0" class="empty">{{ t('chat.allInGroup') }}</div>
       </div>
 
       <div class="name-section">
@@ -281,8 +278,7 @@ function openAgent(agent: Agent) {
         <div class="section-title">{{ t('chat.groupMode') }}</div>
         <button class="mode-row" @click="toggleMode">
           <span class="mode-info">
-            <span class="mode-name">{{ t('chat.freeMode') }}</span>
-            <span class="mode-desc">{{ t('chat.freeModeDesc') }}</span>
+            <span class="mode-name" :title="t('chat.freeModeDesc')">{{ t('chat.freeMode') }}</span>
           </span>
           <span class="switch" :class="{ on: currentMode === 'free' }"><span class="knob"></span></span>
         </button>
@@ -305,15 +301,15 @@ function openAgent(agent: Agent) {
           </svg>
           {{ t('chat.resetSession') }}
         </button>
-      </div>
-
-      <div class="danger-section">
         <button class="menu-item" @click="exportChat">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
           </svg>
           {{ t('chat.exportChat') }}
         </button>
+      </div>
+
+      <div class="danger-section">
         <button class="menu-item danger" @click="disbandGroup">
           <svg viewBox="0 0 24 24" fill="currentColor">
             <path
@@ -363,6 +359,8 @@ function openAgent(agent: Agent) {
         {{ t('chat.deleteChat') }}
       </button>
     </template>
+
+    <AddMemberModal v-if="showAdd" :conversation="conversation" @close="showAdd = false" />
   </div>
 </template>
 
@@ -440,6 +438,31 @@ function openAgent(agent: Agent) {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  // 编排者小标：当前主持实心绿，其余成员空心灰，点击即换
+  .host-chip {
+    max-width: 100%;
+    padding: 1px 7px;
+    border-radius: $radius-sm;
+    border: 1px solid $border-color;
+    background: transparent;
+    color: $text-tertiary;
+    font-size: 10px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: border-color $transition-fast, color $transition-fast, background $transition-fast;
+
+    &:hover {
+      border-color: $primary-color;
+      color: $primary-color;
+    }
+
+    &.on {
+      border-color: $primary-color;
+      background: $primary-color;
+      color: $text-white;
+    }
+  }
 }
 
 .add-cell {
@@ -470,52 +493,6 @@ function openAgent(agent: Agent) {
     border-color: #fa5151;
     color: #fa5151;
     border-style: solid;
-  }
-}
-
-.candidate-list {
-  padding: 0 $spacing-md $spacing-sm;
-  border-top: 1px solid $border-light;
-
-  .candidate-row {
-    display: flex;
-    align-items: center;
-    gap: $spacing-sm;
-    width: 100%;
-    padding: $spacing-sm;
-    border-radius: $radius-sm;
-    cursor: pointer;
-    text-align: left;
-    transition: background $transition-fast;
-
-    &:hover {
-      background: $bg-panel-hover;
-    }
-
-    .cand-name {
-      font-size: $font-size-sm;
-      color: $text-primary;
-      flex: 1;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .cand-model {
-      font-size: $font-size-xs;
-      color: $text-tertiary;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-  }
-
-  .empty {
-    padding: $spacing-sm 0;
-    font-size: $font-size-xs;
-    color: $text-tertiary;
   }
 }
 
@@ -577,6 +554,7 @@ function openAgent(agent: Agent) {
   display: flex;
   align-items: center;
   gap: $spacing-md;
+  width: 100%;
   padding: $spacing-sm;
   border-radius: $radius-sm;
   text-align: left;
@@ -595,14 +573,11 @@ function openAgent(agent: Agent) {
   }
 
   .mode-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: $font-size-base;
     color: $text-primary;
-  }
-
-  .mode-desc {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
-    line-height: 1.5;
   }
 }
 

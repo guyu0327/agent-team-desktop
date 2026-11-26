@@ -102,14 +102,13 @@ function cancel() {
       </div>
 
       <div class="field">
-        <label class="label required">{{ t('skillForm.idLabel') }}</label>
+        <label class="label required" :title="t('skillForm.idHint')">{{ t('skillForm.idLabel') }}</label>
         <input
           v-model="form.skillId"
           class="input mono"
           :disabled="isEdit"
           :placeholder="isEdit ? form.skillId : 'weekly-report-guide'"
         />
-        <p class="hint">{{ t('skillForm.idHint') }}</p>
       </div>
 
       <div class="field">
@@ -181,11 +180,6 @@ function cancel() {
     content: ' *';
     color: #fa5151;
   }
-}
-
-.hint {
-  font-size: $font-size-xs;
-  color: $text-tertiary;
 }
 
 .input {

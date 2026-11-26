@@ -27,7 +27,7 @@ const memberIds = ref<string[]>([])
 const name = ref(props.task?.name ?? '')
 const content = ref(props.task?.content ?? '')
 const kind = ref<ScheduledTask['kind']>(props.task?.kind ?? 'daily')
-/** 任务类型：普通=智能体独立执行；协作=编排者拉成员建群（创建后不可改） */
+/** 任务类型：普通=智能体独立执行；协作=主导者拉成员建群（创建后不可改） */
 const mode = ref<'normal' | 'collab'>(props.task?.mode ?? 'normal')
 /** 错过的单次任务启动时是否补发，默认不补发 */
 const catchUp = ref(!!props.task?.catchUp)
@@ -36,19 +36,12 @@ const autoWrite = ref(props.task ? props.task.autoWrite !== false : true)
 const autoShell = ref(!!props.task?.autoShell)
 const autoBrowser = ref(!!props.task?.autoBrowser)
 
-const orchestrators = computed(() => agentStore.agents.filter((a) => a.isOrchestrator))
-/** 执行者候选：普通任务全员可选；协作任务只能选编排者 */
-const executorCandidates = computed(() =>
-  mode.value === 'collab' && orchestrators.value.length > 0 ? orchestrators.value : agentStore.agents,
-)
+/** 执行者候选：主导智能体不限身份，任意智能体都能独立执行或建群协作（编排者是会话角色） */
+const executorCandidates = computed(() => agentStore.agents)
 
 function switchMode(m: 'normal' | 'collab') {
   if (props.task || m === mode.value) return
   mode.value = m
-  if (m === 'collab' && !orchestrators.value.some((a) => a.id === agentId.value)) {
-    const first = orchestrators.value[0] ?? agentStore.agents[0]
-    if (first) agentId.value = first.id
-  }
   if (m === 'normal') memberIds.value = []
 }
 
@@ -76,7 +69,7 @@ const kindLabel = (k: ScheduledTask['kind']) =>
   ({ once: t('tasks.kindOnce'), daily: t('tasks.kindDaily'), weekly: t('tasks.kindWeekly'), interval: t('tasks.kindInterval') })[k]
 
 const memberCandidates = computed(() =>
-  agentStore.agents.filter((a) => !a.isOrchestrator && a.id !== agentId.value),
+  agentStore.agents.filter((a) => a.id !== agentId.value),
 )
 
 function toggleMember(id: string) {
@@ -185,7 +178,7 @@ async function save() {
       </div>
 
       <div v-if="!props.task" class="field">
-        <label class="label">{{ t('tasks.mode') }}</label>
+        <label class="label" :title="t('tasks.modeHint')">{{ t('tasks.mode') }}</label>
         <div class="kind-row">
           <button
             type="button"
@@ -204,7 +197,6 @@ async function save() {
             {{ t('tasks.modeCollab') }}
           </button>
         </div>
-        <span class="hint">{{ t('tasks.modeHint') }}</span>
       </div>
 
       <div class="field">
@@ -231,7 +223,7 @@ async function save() {
       </div>
 
       <div v-if="!props.task && mode === 'collab' && memberCandidates.length > 0" class="field">
-        <label class="label">{{ t('tasks.members') }}</label>
+        <label class="label" :title="t('tasks.membersHintCollab')">{{ t('tasks.members') }}</label>
         <div class="member-chips">
           <button
             v-for="a in memberCandidates"
@@ -245,7 +237,6 @@ async function save() {
             {{ a.name }}
           </button>
         </div>
-        <span class="hint">{{ t('tasks.membersHintCollab') }}</span>
       </div>
 
       <div class="field">
@@ -302,21 +293,19 @@ async function save() {
             <span class="knob" />
           </button>
           <div class="catchup-text">
-            <span class="catchup-label">{{ t('tasks.catchUp') }}</span>
-            <span class="hint">{{ t('tasks.catchUpHint') }}</span>
+            <span class="catchup-label" :title="t('tasks.catchUpHint')">{{ t('tasks.catchUp') }}</span>
           </div>
         </div>
       </div>
 
       <div class="field">
-        <label class="label">{{ t('tasks.autoApprove') }}</label>
+        <label class="label" :title="t('tasks.autoApproveHint')">{{ t('tasks.autoApprove') }}</label>
         <div class="catchup-row">
           <button type="button" class="switch" :class="{ on: autoWrite }" @click="autoWrite = !autoWrite">
             <span class="knob" />
           </button>
           <div class="catchup-text">
-            <span class="catchup-label">{{ t('tasks.autoWrite') }}</span>
-            <span class="hint">{{ t('tasks.autoWriteHint') }}</span>
+            <span class="catchup-label" :title="t('tasks.autoWriteHint')">{{ t('tasks.autoWrite') }}</span>
           </div>
         </div>
         <div class="catchup-row">
@@ -324,8 +313,7 @@ async function save() {
             <span class="knob" />
           </button>
           <div class="catchup-text">
-            <span class="catchup-label">{{ t('tasks.autoShell') }}</span>
-            <span class="hint">{{ t('tasks.autoShellHint') }}</span>
+            <span class="catchup-label" :title="t('tasks.autoShellHint')">{{ t('tasks.autoShell') }}</span>
           </div>
         </div>
         <div class="catchup-row">
@@ -333,11 +321,9 @@ async function save() {
             <span class="knob" />
           </button>
           <div class="catchup-text">
-            <span class="catchup-label">{{ t('tasks.autoBrowser') }}</span>
-            <span class="hint">{{ t('tasks.autoBrowserHint') }}</span>
+            <span class="catchup-label" :title="t('tasks.autoBrowserHint')">{{ t('tasks.autoBrowser') }}</span>
           </div>
         </div>
-        <span class="hint">{{ t('tasks.autoApproveHint') }}</span>
       </div>
 
       <div v-if="preview" class="preview">
@@ -391,6 +377,9 @@ async function save() {
 }
 
 .label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: $font-size-sm;
   color: $text-secondary;
 }
@@ -419,12 +408,6 @@ async function save() {
   &.time {
     width: 140px;
   }
-}
-
-.hint {
-  font-size: $font-size-xs;
-  color: $text-tertiary;
-  line-height: 1.5;
 }
 
 .agent-list {
@@ -584,6 +567,9 @@ async function save() {
     gap: 2px;
 
     .catchup-label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
       font-size: $font-size-sm;
       color: $text-primary;
     }

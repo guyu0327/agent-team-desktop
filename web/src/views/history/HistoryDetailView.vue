@@ -165,14 +165,14 @@ function senderInfo(msg: Message): { name: string; avatar?: string } {
 }
 
 function senderBadge(msg: Message): string | undefined {
-  // QQ 外部成员按群角色标注（群主/管理员），普通成员无徽标；其余走智能体主脑徽标
+  // QQ 外部成员按群角色标注（群主/管理员），普通成员无徽标；其余按会话编排者标注（会话角色，动态）
   if (isExternal(msg)) {
     if (msg.senderRole === 'owner') return t('chat.qqOwner')
     if (msg.senderRole === 'admin') return t('chat.qqAdmin')
     return undefined
   }
   if (msg.senderType === 'user') return undefined
-  return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
+  return conv.value?.hostAgentId === msg.senderId ? t('common.host') : undefined
 }
 
 /** 消息发送者对应的智能体（自己/QQ 外部成员/已删智能体为 undefined） */
@@ -329,7 +329,7 @@ async function onMsgCtxSelect(key: string) {
             :sender-name="senderInfo(msg).name"
             :sender-avatar="senderInfo(msg).avatar"
             :badge="senderBadge(msg)"
-            :show-name="isExternal(msg)"
+            :show-name="(conv?.type === 'group' || isExternal(msg)) && !isSelf(msg)"
             :avatar-navigable="senderAgent(msg) !== undefined"
             @bubble-menu="openMsgCtx($event, msg)"
             @avatar-open="openAgentProfile(msg)"

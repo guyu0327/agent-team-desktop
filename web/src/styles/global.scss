@@ -33,6 +33,11 @@
   --c-border: rgba(255, 255, 255, 0.08);
   --c-border-light: rgba(255, 255, 255, 0.05);
 
+  /* 气泡内辅助折叠条（思考过程/浏览记录/工具调用）与展开面板的叠加配色 */
+  --c-chip-bg: rgba(0, 0, 0, 0.22);
+  --c-chip-bg-hover: rgba(0, 0, 0, 0.35);
+  --c-chip-border: rgba(255, 255, 255, 0.12);
+
   --c-titlebar-text: rgba(230, 230, 230, 0.45);
 }
 
@@ -59,6 +64,10 @@ html[data-theme='light'] {
 
   --c-border: rgba(0, 0, 0, 0.1);
   --c-border-light: rgba(0, 0, 0, 0.05);
+
+  --c-chip-bg: rgba(0, 0, 0, 0.045);
+  --c-chip-bg-hover: rgba(0, 0, 0, 0.09);
+  --c-chip-border: rgba(0, 0, 0, 0.1);
 
   --c-titlebar-text: rgba(0, 0, 0, 0.4);
 }

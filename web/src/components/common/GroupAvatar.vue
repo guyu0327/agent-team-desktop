@@ -43,8 +43,9 @@ const style = computed(() => ({
 <style scoped lang="scss">
 .group-avatar {
   display: grid;
-  align-content: start;
-  justify-content: start;
+  // 宫格不足整框时上下左右居中（如 2 人单行、4 人田字格换算后余 1px）
+  align-content: center;
+  justify-content: center;
   overflow: hidden;
   border-radius: $radius-sm;
   background: $bg-input;

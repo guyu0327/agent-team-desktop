@@ -504,9 +504,9 @@ defineOptions({ inheritAttrs: false })
     align-items: center;
     gap: 5px;
     padding: 3px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid $chip-border;
     border-radius: $radius-sm;
-    background: rgba(0, 0, 0, 0.22);
+    background: $chip-bg;
     color: $text-tertiary;
     font-size: $font-size-xs;
     line-height: 1.2;
@@ -514,7 +514,7 @@ defineOptions({ inheritAttrs: false })
     transition: background $transition-fast, color $transition-fast;
 
     &:hover {
-      background: rgba(0, 0, 0, 0.35);
+      background: $chip-bg-hover;
       color: $text-secondary;
     }
 
@@ -543,9 +543,9 @@ defineOptions({ inheritAttrs: false })
     max-height: 220px;
     overflow-y: auto;
     max-width: 100%;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid $chip-border;
     border-radius: $radius-sm;
-    background: rgba(0, 0, 0, 0.22);
+    background: $chip-bg;
     font-family: inherit;
     font-size: $font-size-xs;
     line-height: 1.6;
@@ -561,9 +561,9 @@ defineOptions({ inheritAttrs: false })
     align-items: center;
     gap: 5px;
     padding: 3px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid $chip-border;
     border-radius: $radius-sm;
-    background: rgba(0, 0, 0, 0.22);
+    background: $chip-bg;
     color: $text-tertiary;
     font-size: $font-size-xs;
     line-height: 1.2;
@@ -571,7 +571,7 @@ defineOptions({ inheritAttrs: false })
     transition: background $transition-fast, color $transition-fast;
 
     &:hover {
-      background: rgba(0, 0, 0, 0.35);
+      background: $chip-bg-hover;
       color: $text-secondary;
     }
 
@@ -604,9 +604,9 @@ defineOptions({ inheritAttrs: false })
     flex-direction: column;
     gap: 4px;
     max-width: 100%;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid $chip-border;
     border-radius: $radius-sm;
-    background: rgba(0, 0, 0, 0.22);
+    background: $chip-bg;
 
     li {
       display: flex;

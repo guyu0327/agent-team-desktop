@@ -20,6 +20,7 @@ import {
   renameConversation,
   resetMessages,
   sendMessageStream,
+  setConversationHost,
   setConversationMode,
   subscribeConversationEvents,
 } from '@/api/conversation'
@@ -47,8 +48,8 @@ export const useConversationStore = defineStore('conversation', () => {
   /** 任务会话内按任务筛选消息（taskId，null=全部） */
   const taskFilter = ref<string | null>(null)
   const typingByConv = ref<Record<string, boolean>>({})
-  /** 会话 -> 正在协调的编排者 agentId */
-  const orchestratingByConv = ref<Record<string, string>>({})
+  /** 会话 -> 正在协调的编排者（agentId + 横幅模式：task=单聊执行任务 / team=团队协作） */
+  const orchestratingByConv = ref<Record<string, { agentId: string; mode: 'task' | 'team' }>>({})
   /** 会话 -> 是否正在自由讨论接龙 */
   const discussingByConv = ref<Record<string, boolean>>({})
   /** 会话 -> 正在生成图片的智能体名（generate_image 执行窗口，结束即清除） */
@@ -87,8 +88,6 @@ export const useConversationStore = defineStore('conversation', () => {
     chatDraftByConv.value[conversationId] = text
   }
 
-  /** 同一会话的发送串行化，避免两次发送的回复流交错 */
-  const sendQueue = new Map<string, Promise<void>>()
   /** 本地发送回合（POST 响应流）在途的会话：响应流事件不向观察者扇出、切页重挂载后也无重放，
    *  store 里的思考/流式状态全靠它实时维护，重挂载清理时必须跳过这些会话 */
   const activeSendConvs = new Set<string>()
@@ -263,8 +262,13 @@ export const useConversationStore = defineStore('conversation', () => {
 
   function pushMessage(msg: Message) {
     const list = messagesMap.value[msg.conversationId]
-    if (list) list.push(msg)
-    else messagesMap.value[msg.conversationId] = [msg]
+    if (list) {
+      // 插话消息双路到达（发送回执流 + 观察者扇出）：按 id 去重，后到者整条丢弃
+      if (list.some((m) => m.id === msg.id)) return
+      list.push(msg)
+    } else {
+      messagesMap.value[msg.conversationId] = [msg]
+    }
     const conv = findConv(msg.conversationId)
     if (conv) {
       applyPreview(conv, msg)
@@ -276,13 +280,9 @@ export const useConversationStore = defineStore('conversation', () => {
   function sendMessage(content: string, attachments: Attachment[] = []): Promise<void> {
     const conversationId = activeId.value
     if (!conversationId) return Promise.resolve()
-    const prev = sendQueue.get(conversationId) ?? Promise.resolve()
-    const task = prev.then(() => doSend(conversationId, content, attachments))
-    sendQueue.set(
-      conversationId,
-      task.catch(() => {}),
-    )
-    return task
+    // 插话语义：回复进行中也立即发送，后端决定开新轮还是插话（原 sendQueue 静默排队已删——
+    // 排队消息会在上一轮结束/终止后才突然冒出来，且只存在内存里、关窗即丢）
+    return doSend(conversationId, content, attachments)
   }
 
   /** 一轮流式回复的公共事件处理：本地发送（doSend）与任务扇出订阅（watchConversation）共用 */
@@ -384,7 +384,7 @@ export const useConversationStore = defineStore('conversation', () => {
         replaceConv(conv)
       },
       onCoordinationStart: (e) => {
-        orchestratingByConv.value[e.conversationId] = e.agentId
+        orchestratingByConv.value[e.conversationId] = { agentId: e.agentId, mode: e.mode ?? 'team' }
         coordCids.add(e.conversationId)
       },
       onCoordinationEnd: (e) => {
@@ -503,6 +503,12 @@ export const useConversationStore = defineStore('conversation', () => {
 
   async function doSend(conversationId: string, content: string, attachments: Attachment[]) {
     const { handlers, finish } = streamHandlers(conversationId)
+    // 插话回执流（done 带 interjected:true）：消息已落库并扇出，主轮仍在流式——只补列表与
+    // 指示条刷新，不动主轮的思考/接龙状态（收尾由主轮自己的 finish 负责），清了会半路掐灭指示条
+    let interjected = false
+    handlers.onDone = (e) => {
+      if (e?.interjected) interjected = true
+    }
     activeSendConvs.add(conversationId)
     try {
       // 思考中状态从发出消息即开始（此前要到 reply_start 才置位，而 reply_start 与首个
@@ -511,7 +517,13 @@ export const useConversationStore = defineStore('conversation', () => {
       await sendMessageStream(conversationId, content, handlers, attachments)
     } finally {
       activeSendConvs.delete(conversationId)
-      await finish()
+      if (interjected) {
+        if (activeId.value === conversationId) markRead(conversationId).catch(() => {})
+        loadConversations().catch(() => {})
+        void refreshContextSize(conversationId)
+      } else {
+        await finish()
+      }
     }
   }
 
@@ -608,6 +620,13 @@ export const useConversationStore = defineStore('conversation', () => {
     if (conv) conv.chatMode = mode
   }
 
+  /** 设置/更换群聊编排者（会话角色），本地同步会话对象 */
+  async function setGroupHost(conversationId: string, agentId: string) {
+    await setConversationHost(conversationId, agentId)
+    const conv = findConv(conversationId)
+    if (conv) conv.hostAgentId = agentId.trim() ? agentId : null
+  }
+
   async function addGroupMembers(conversationId: string, agentIds: string[]) {
     const conv = await addMembers(conversationId, agentIds)
     replaceConv(conv)
@@ -634,8 +653,9 @@ export const useConversationStore = defineStore('conversation', () => {
     name: string,
     memberIds: string[],
     chatMode: 'passive' | 'free' = 'passive',
+    hostAgentId?: string | null,
   ): Promise<Conversation> {
-    const conv = await apiCreateGroup(name.trim() || t('message.unnamed'), memberIds, chatMode)
+    const conv = await apiCreateGroup(name.trim() || t('message.unnamed'), memberIds, chatMode, hostAgentId)
     conversations.value.push(conv)
     return conv
   }
@@ -713,6 +733,7 @@ export const useConversationStore = defineStore('conversation', () => {
     archiveConversation,
     renameGroup,
     setChatMode,
+    setGroupHost,
     addGroupMembers,
     removeGroupMember,
   }

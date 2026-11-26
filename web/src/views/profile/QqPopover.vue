@@ -13,6 +13,7 @@ import {
   type QqStatus,
 } from '@/api/qq'
 import { confirmAction } from '@/composables/confirm'
+import AgentPickerModal from '@/components/common/AgentPickerModal.vue'
 import { t } from '@/i18n'
 
 const emit = defineEmits<{ close: [] }>()
@@ -54,25 +55,26 @@ const groupPolicyItems = computed(() =>
   POLICIES.map((p) => ({ value: p, label: t(`settings.qqPolicy_${p}`) })),
 )
 
-/** 名单编辑器统一描述：key 对应 form 里的数组字段 */
+/** 名单编辑器：key 对应 form 里的数组字段；仅策略切到「白名单」才显示对应编辑器 */
 const listDefs = computed(() => {
   if (!form.value) return []
-  return [
+  const defs = [
     {
       key: 'c2cWhitelist' as const,
       label: t('settings.qqC2cWhitelist'),
-      desc: t('settings.qqC2cWhitelistDesc'),
       items: form.value.c2cWhitelist,
       suggestions: seenC2c.value,
     },
     {
       key: 'groupWhitelist' as const,
       label: t('settings.qqGroupWhitelist'),
-      desc: t('settings.qqGroupWhitelistDesc'),
       items: form.value.groupWhitelist,
       suggestions: seenGroups.value,
     },
   ]
+  return defs.filter((d) =>
+    d.key === 'c2cWhitelist' ? form.value!.c2cPolicy === 'whitelist' : form.value!.groupPolicy === 'whitelist',
+  )
 })
 
 /** 最近联系人：私聊按用户、群聊拆成群本体和群成员两个维度 */
@@ -138,6 +140,17 @@ async function refresh() {
   }
 }
 
+/** 跳转 QQ 开放平台获取密钥（系统浏览器打开） */
+function openGetUrl(u: string) {
+  window.open(u, '_blank', 'noopener')
+}
+
+/** 处理智能体选择弹窗：选中即写入 form，由 watch 深度监听自动保存 */
+const showAgentPicker = ref(false)
+function onAgentPicked(id: string) {
+  if (form.value) form.value = { ...form.value, agentId: id }
+}
+
 async function saveCredential() {
   if (busy.value) return
   if (!appIdInput.value.trim() || !appSecretInput.value.trim()) {
@@ -168,6 +181,8 @@ async function disconnectChan() {
   if (!ok) return
   try {
     fill(await disconnectQq())
+    // 解绑后回到扫码接入页（与打开时未配置的默认一致）
+    if (!configured.value) await openQr()
   } catch {
     /* 解绑失败保持原状态 */
   }
@@ -293,13 +308,11 @@ onUnmounted(() => {
             d="M21.395 15.035a40 40 0 0 0-.803-2.264l-1.079-2.695c.001-.032.014-.562.014-.836C19.526 4.632 17.351 0 12 0S4.474 4.632 4.474 9.241c0 .274.013.804.014.836l-1.08 2.695a39 39 0 0 0-.802 2.264c-1.021 3.283-.69 4.643-.438 4.673.54.065 2.103-2.472 2.103-2.472 0 1.469.756 3.387 2.394 4.771-.612.188-1.363.479-1.845.835-.434.32-.379.646-.301.778.343.578 5.883.369 7.482.189 1.6.18 7.14.389 7.483-.189.078-.132.132-.458-.301-.778-.483-.356-1.233-.646-1.846-.836 1.637-1.384 2.393-3.302 2.393-4.771 0 0 1.563 2.537 2.103 2.472.251-.03.581-1.39-.438-4.673"
           />
         </svg>
-        <span class="head-title">{{ t('settings.qq') }}</span>
+        <span class="head-title" :title="t('settings.qqHint')">{{ t('settings.qq') }}</span>
         <span v-if="configured" class="state" :class="{ on: connected }">
           {{ connected ? t('settings.qqOnline') : t('settings.qqOffline') }}
         </span>
       </div>
-
-      <p class="hint">{{ t('settings.qqHint') }}</p>
 
       <!-- 扫码视图：建任务出二维码，手机 QQ 扫码确认后凭据自动保存 -->
       <div v-if="view === 'qr'" class="qr-box">
@@ -323,7 +336,7 @@ onUnmounted(() => {
       <!-- 手动填写视图：与扫码互切 -->
       <template v-else-if="view === 'cred'">
         <div class="field">
-          <label class="label">{{ t('settings.qqAppId') }}</label>
+          <label class="label">{{ t('settings.qqAppId') }}<a class="get-link" @click.stop="openGetUrl('https://q.qq.com/')">{{ t('settings.getKey') }}<svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg></a></label>
           <input v-model="appIdInput" class="input" type="text" :placeholder="t('settings.qqAppIdPh')" />
         </div>
         <div class="field">
@@ -356,24 +369,26 @@ onUnmounted(() => {
 
         <button class="row" @click="form.enabled = !form.enabled">
           <span class="row-info">
-            <span class="row-name">{{ t('settings.qqEnabled') }}</span>
-            <span class="row-desc">{{ t('settings.qqEnabledDesc') }}</span>
+            <span class="row-name" :title="t('settings.qqEnabledDesc')">{{ t('settings.qqEnabled') }}</span>
           </span>
           <span class="switch" :class="{ on: form.enabled }"><span class="knob"></span></span>
         </button>
 
         <div class="field">
           <label class="label">{{ t('settings.qqAgent') }}</label>
-          <select v-model="form.agentId" class="input">
-            <option value="">{{ t('settings.qqAgentAuto') }}</option>
-            <option v-for="a in agentStore.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <button
+            type="button"
+            class="input agent-trigger"
+            :class="{ 'is-auto': !form.agentId }"
+            @click="showAgentPicker = true"
+          >
+            {{ form.agentId ? agentStore.getById(form.agentId)?.name : t('settings.qqAgentAuto') }}
+          </button>
         </div>
 
         <button class="row" @click="form.autoWrite = !form.autoWrite">
           <span class="row-info">
             <span class="row-name">{{ t('settings.qqAutoWrite') }}</span>
-            <span class="row-desc">{{ t('settings.qqAutoWriteDesc') }}</span>
           </span>
           <span class="switch" :class="{ on: form.autoWrite }"><span class="knob"></span></span>
         </button>
@@ -381,7 +396,6 @@ onUnmounted(() => {
         <button class="row" @click="form.autoShell = !form.autoShell">
           <span class="row-info">
             <span class="row-name">{{ t('settings.qqAutoShell') }}</span>
-            <span class="row-desc">{{ t('settings.qqAutoShellDesc') }}</span>
           </span>
           <span class="switch" :class="{ on: form.autoShell }"><span class="knob"></span></span>
         </button>
@@ -422,7 +436,6 @@ onUnmounted(() => {
         <template v-for="def in listDefs" :key="def.key">
           <div class="field">
             <label class="label">{{ def.label }}</label>
-            <p class="label-desc">{{ def.desc }}</p>
             <div v-if="def.items.length" class="tags">
               <span v-for="item in def.items" :key="item" class="tag">
                 {{ tailOf(item) }}
@@ -456,6 +469,15 @@ onUnmounted(() => {
           </div>
         </template>
       </template>
+
+      <AgentPickerModal
+        v-if="showAgentPicker"
+        :title="t('settings.qqAgent')"
+        :selected-id="form?.agentId ?? ''"
+        :auto-label="t('settings.qqAgentAuto')"
+        @select="onAgentPicked"
+        @close="showAgentPicker = false"
+      />
     </div>
   </div>
 </template>
@@ -528,10 +550,10 @@ onUnmounted(() => {
     }
   }
 
-  .hint {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
-    line-height: 1.6;
+  .row-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 }
 
@@ -545,10 +567,24 @@ onUnmounted(() => {
     color: $text-secondary;
   }
 
-  .label-desc {
+  .get-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: $spacing-sm;
     font-size: $font-size-xs;
-    color: $text-tertiary;
-    line-height: 1.5;
+    color: $primary-color;
+    cursor: pointer;
+    vertical-align: baseline;
+
+    &:hover {
+      text-decoration: underline;
+    }
+
+    .link-icon {
+      width: 12px;
+      height: 12px;
+    }
   }
 }
 
@@ -564,6 +600,16 @@ onUnmounted(() => {
 
   &:focus {
     border-color: $primary-color;
+  }
+}
+
+// 处理智能体触发按钮：复用 .input 皮肤，自动档显示占位灰
+.agent-trigger {
+  text-align: left;
+  cursor: pointer;
+
+  &.is-auto {
+    color: $text-tertiary;
   }
 }
 
@@ -710,13 +756,11 @@ onUnmounted(() => {
   }
 
   .row-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: $font-size-base;
     color: $text-primary;
-  }
-
-  .row-desc {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
   }
 }
 

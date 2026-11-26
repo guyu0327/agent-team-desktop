@@ -4,6 +4,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useConversationStore } from '@/stores/conversation'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import Avatar from '@/components/common/Avatar.vue'
+import type { Agent } from '@/types'
 import { t } from '@/i18n'
 
 const emit = defineEmits<{
@@ -21,7 +22,49 @@ const presetStore = useModelPresetStore()
 
 const name = ref('')
 const selectedIds = ref<string[]>([])
-const freeMode = ref(false)
+/** 编排者（会话角色）：建群只能建被动群，自由讨论进群后在群菜单里切（避免建群时不设主持、
+ *  日后切被动模式出现没有主持人的情况）；在已选成员中指定，默认第一个勾选的 */
+const hostId = ref('')
+
+// 勾选变化时保持 hostId 始终指向已选成员：取消了主持的勾选则顺延给下一个已选成员
+function syncHost() {
+  if (selectedIds.value.length === 0) {
+    hostId.value = ''
+  } else if (!selectedIds.value.includes(hostId.value)) {
+    hostId.value = selectedIds.value[0]
+  }
+}
+
+// 成员按通讯录同款分组展示（ groupName 分组 + 未分组兜底），组头可折叠
+const collapsed = ref<Set<string>>(new Set())
+function toggleGroup(groupName: string) {
+  const next = new Set(collapsed.value)
+  if (next.has(groupName)) next.delete(groupName)
+  else next.add(groupName)
+  collapsed.value = next
+}
+
+interface AgentGroup {
+  name: string
+  agents: Agent[]
+}
+
+const groups = computed<AgentGroup[]>(() => {
+  const named = new Map<string, Agent[]>()
+  const ungrouped: Agent[] = []
+  for (const a of agentStore.agents) {
+    if (a.groupName) {
+      const list = named.get(a.groupName)
+      if (list) list.push(a)
+      else named.set(a.groupName, [a])
+    } else {
+      ungrouped.push(a)
+    }
+  }
+  const result: AgentGroup[] = [...named.entries()].map(([groupName, agents]) => ({ name: groupName, agents }))
+  if (ungrouped.length > 0) result.push({ name: t('contact.ungrouped'), agents: ungrouped })
+  return result
+})
 
 const canCreate = computed(() => selectedIds.value.length > 0)
 
@@ -29,6 +72,7 @@ function toggle(id: string) {
   const idx = selectedIds.value.indexOf(id)
   if (idx >= 0) selectedIds.value.splice(idx, 1)
   else selectedIds.value.push(id)
+  syncHost()
 }
 
 async function create() {
@@ -36,7 +80,8 @@ async function create() {
   const conv = await conversationStore.createGroup(
     name.value.trim() || t('message.unnamed'),
     selectedIds.value,
-    freeMode.value ? 'free' : 'passive',
+    'passive',
+    hostId.value || null,
   )
   emit('created', conv.id)
 }
@@ -57,38 +102,67 @@ async function create() {
         <input v-model="name" class="input" :placeholder="t('message.namePlaceholder')" autofocus />
       </div>
 
-      <div class="field">
-        <label class="label">{{ t('message.replyMode') }}</label>
-        <button type="button" class="mode-row" @click="freeMode = !freeMode">
-          <span class="mode-info">
-            <span class="mode-name">{{ t('chat.freeMode') }}</span>
-            <span class="mode-desc">{{ freeMode ? t('chat.freeModeDesc') : t('message.passiveDesc') }}</span>
-          </span>
-          <span class="switch" :class="{ on: freeMode }"><span class="knob"></span></span>
-        </button>
-      </div>
-
       <div class="field members-field">
         <label class="label">{{ t('message.pickMembers', { sel: selectedIds.length, total: agentStore.agents.length }) }}</label>
         <div class="member-list">
-          <button
-            v-for="agent in agentStore.agents"
-            :key="agent.id"
-            type="button"
-            class="member-row"
-            :class="{ selected: selectedIds.includes(agent.id) }"
-            @click="toggle(agent.id)"
-          >
-            <Avatar :name="agent.name" :avatar="agent.avatar" :size="32" />
-            <div class="member-info">
-              <span class="member-name">{{ agent.name }}</span>
-              <span class="member-model">{{ (agent.presetId && presetStore.findById(agent.presetId)?.name) || t('common.noPreset') }}</span>
-            </div>
-            <span class="check" :class="{ checked: selectedIds.includes(agent.id) }">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
-                <path d="m5 12 5 5 9-10" />
+          <div v-for="group in groups" :key="group.name" class="group">
+            <button type="button" class="group-header" @click="toggleGroup(group.name)">
+              <svg
+                class="chevron"
+                :class="{ expanded: !collapsed.has(group.name) }"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M9 6l6 6-6 6" />
               </svg>
-            </span>
+              <span class="group-name">{{ group.name }}</span>
+              <span class="group-count">{{ group.agents.length }}</span>
+            </button>
+
+            <template v-if="!collapsed.has(group.name)">
+              <button
+                v-for="agent in group.agents"
+                :key="agent.id"
+                type="button"
+                class="member-row"
+                :class="{ selected: selectedIds.includes(agent.id) }"
+                @click="toggle(agent.id)"
+              >
+                <Avatar :name="agent.name" :avatar="agent.avatar" :size="32" />
+                <div class="member-info">
+                  <span class="member-name">{{ agent.name }}</span>
+                  <span class="member-desc">{{ agent.description || (agent.presetId && presetStore.findById(agent.presetId)?.name) || t('common.noPreset') }}</span>
+                </div>
+                <span class="check" :class="{ checked: selectedIds.includes(agent.id) }">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                    <path d="m5 12 5 5 9-10" />
+                  </svg>
+                </span>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- 编排者（会话角色）：在已选成员中指定，默认第一个勾选的，点击可换；自由讨论进群后切 -->
+      <div v-if="selectedIds.length > 0" class="field">
+        <label class="label" :title="t('message.hostHint')">{{ t('message.hostLabel') }}</label>
+        <div class="host-chips">
+          <button
+            v-for="id in selectedIds"
+            :key="id"
+            type="button"
+            class="host-chip"
+            :class="{ selected: id === hostId }"
+            :title="agentStore.getById(id)?.name"
+            @click="hostId = id"
+          >
+            <Avatar :name="agentStore.getById(id)?.name ?? ''" :avatar="agentStore.getById(id)?.avatar" :size="20" />
+            {{ agentStore.getById(id)?.name }}
           </button>
         </div>
       </div>
@@ -137,6 +211,9 @@ async function create() {
 }
 
 .label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: $font-size-sm;
   color: $text-secondary;
 }
@@ -158,79 +235,43 @@ async function create() {
   }
 }
 
-.hint {
-  font-size: $font-size-xs;
-  color: $text-tertiary;
-  line-height: 1.5;
-}
-
-.mode-row {
-  display: flex;
-  align-items: center;
-  gap: $spacing-md;
-  padding: $spacing-sm $spacing-md;
-  border: 1px solid $border-color;
-  border-radius: $radius-sm;
-  text-align: left;
-  transition: border-color $transition-fast;
-
-  &:hover {
-    border-color: $primary-color;
-  }
-
-  .mode-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .mode-name {
-    font-size: $font-size-base;
-    color: $text-primary;
-  }
-
-  .mode-desc {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
-    line-height: 1.5;
-  }
-}
-
-.switch {
-  width: 40px;
-  height: 22px;
-  border-radius: 11px;
-  background: $border-color;
-  position: relative;
-  transition: background $transition-fast;
-  flex-shrink: 0;
-
-  &.on {
-    background: $primary-color;
-  }
-
-  .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-    transition: transform $transition-fast;
-  }
-
-  &.on .knob {
-    transform: translateX(18px);
-  }
-}
-
 .members-field {
   flex: 1;
   min-height: 0;
+}
+
+.host-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+  // 选满成员时 chips 换行无限堆叠会挤压成员列表，限高约三行、超出滚动
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.host-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: $radius-md;
+  border: 1px solid $border-color;
+  background: transparent;
+  color: $text-secondary;
+  font-size: $font-size-sm;
+  cursor: pointer;
+  transition: border-color $transition-fast, color $transition-fast, background $transition-fast;
+
+  &:hover {
+    border-color: $primary-color;
+    color: $text-primary;
+  }
+
+  &.selected {
+    border-color: $primary-color;
+    color: $primary-color;
+    background: $primary-light;
+  }
 }
 
 .member-list {
@@ -242,7 +283,49 @@ async function create() {
   gap: 2px;
 }
 
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-xs;
+  width: 100%;
+  padding: $spacing-sm $spacing-md;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  border-radius: $radius-sm;
+  transition: background $transition-fast;
+
+  &:hover {
+    background: $bg-panel-hover;
+  }
+
+  .chevron {
+    width: 14px;
+    height: 14px;
+    color: $text-tertiary;
+    transition: transform $transition-fast;
+    flex-shrink: 0;
+
+    &.expanded {
+      transform: rotate(90deg);
+    }
+  }
+
+  .group-name {
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+  }
+
+  .group-count {
+    font-size: $font-size-xs;
+    color: $text-tertiary;
+    margin-left: auto;
+  }
+}
+
 .member-row {
+  // 在 .group 容器内不再是 flex 子元素，需显式占满整行（勾选圈才贴右缘）
+  width: 100%;
   display: flex;
   align-items: center;
   gap: $spacing-md;
@@ -274,9 +357,12 @@ async function create() {
     color: $text-primary;
   }
 
-  .member-model {
+  .member-desc {
     font-size: $font-size-xs;
     color: $text-tertiary;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .check {

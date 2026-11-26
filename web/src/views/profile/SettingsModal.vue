@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { getWorkspaceSettings, updateWorkspaceSettings } from '@/api/settings'
 import { getCoordinationLimits, updateCoordinationLimits } from '@/api/settings'
 import { getContextCompression, updateContextCompression } from '@/api/settings'
-import { getBrowserSettings, updateBrowserSettings, getComputerSettings, updateComputerSettings } from '@/api/settings'
+import { getBrowserSettings, updateBrowserSettings } from '@/api/settings'
 import { getAsrStreamSettings, updateAsrStreamSettings } from '@/api/asr'
 import { clearAnySearchSettings, getAnySearchSettings, updateAnySearchSettings } from '@/api/anysearch'
 import type { AnySearchStatus, AsrStreamStatus } from '@/types'
 import { desktop, openLocalPath } from '@/api/desktop'
 import { confirmAction } from '@/composables/confirm'
+import { settingsSection } from '@/composables/settingsModal'
 import { closePref, loadClosePref, setClosePref } from '@/composables/closeConfirm'
 import { showToast } from '@/composables/toast'
 import {
@@ -22,10 +23,13 @@ import {
 import { t } from '@/i18n'
 import { APP_VERSION, GITHUB_REPO_URL, CSDN_BLOG_URL } from '@/constants/app'
 import { startTour } from '@/composables/tutorial'
+import { useMusicDance } from '@/composables/musicDance'
 import ChangelogModal from './ChangelogModal.vue'
 import LogsModal from './LogsModal.vue'
 
 const emit = defineEmits<{ close: [] }>()
+
+const cardEl = ref<HTMLElement | null>(null)
 
 // 遮罩关闭判定：按下与松开都发生在遮罩上才关闭，按住从卡片内拖到遮罩松手不关
 const maskDown = ref(false)
@@ -165,8 +169,6 @@ const savedBrowserWhitelist = ref<string[]>([])
 const browserNewDomain = ref('')
 const browserSaving = ref(false)
 const browserFeedback = ref<{ ok: boolean; text: string } | null>(null)
-const computerEnabled = ref(false)
-const computerBusy = ref(false)
 
 const browserDirty = computed(
   () =>
@@ -283,6 +285,15 @@ async function importBackup() {
 }
 
 onMounted(async () => {
+  // 外部（如聊天页上下文指示）带分区跳转进来：展开目标分区并滚动定位，随后清掉一次性标记
+  const target = settingsSection.value
+  settingsSection.value = ''
+  if (target) {
+    openSection.value = target
+    nextTick(() => {
+      cardEl.value?.querySelector(`[data-sec="${target}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    })
+  }
   try {
     const s = await getWorkspaceSettings()
     root.value = s.root
@@ -333,11 +344,6 @@ onMounted(async () => {
     savedBrowserWhitelist.value = [...(b.whitelist ?? [])]
   } catch (e) {
     browserFeedback.value = { ok: false, text: e instanceof Error ? e.message : t('settings.loadFailed') }
-  }
-  try {
-    computerEnabled.value = (await getComputerSettings()).enabled
-  } catch {
-    /* 读取失败保持默认关闭 */
   }
   if (desktop.getLoginItem) {
     try {
@@ -468,6 +474,11 @@ function resetWebSearch() {
   webApiKey.value = ''
 }
 
+/** 跳转第三方平台获取密钥（系统浏览器打开） */
+function openGetUrl(u: string) {
+  window.open(u, '_blank', 'noopener')
+}
+
 /** 清除 Key 恢复匿名免费档（Key 不回显，「留空保存」只表示不变，清除需显式确认） */
 async function clearWebSearch() {
   if (webSaving.value) return
@@ -504,26 +515,20 @@ async function toggleLaunchAtLogin() {
     launchBusy.value = false
   }
 }
-/** 本机键鼠操控：点按即生效；开启前弹确认框明示后果 */
-async function toggleComputer() {
-  if (computerBusy.value) return
-  const next = !computerEnabled.value
-  if (next) {
-    const ok = await confirmAction({
-      title: t('settings.computerConfirmTitle'),
-      message: t('settings.computerConfirmMsg'),
-      confirmText: t('settings.computerConfirmOk'),
-    })
-    if (!ok) return
-  }
-  computerBusy.value = true
+/** 音乐律动：点按即生效；采集失败轻提示（开关状态重启自动恢复） */
+const { active: danceActive, start: danceStart, stop: danceStop } = useMusicDance()
+const danceToggling = ref(false)
+async function toggleDance() {
+  if (danceToggling.value) return
+  danceToggling.value = true
   try {
-    const s = await updateComputerSettings(next)
-    computerEnabled.value = s.enabled
+    if (danceActive.value) danceStop()
+    else await danceStart()
   } catch (e) {
-    showToast(e instanceof Error ? e.message : t('settings.saveFailed'))
+    console.warn('[musicDance] 采集系统声音失败', e)
+    showToast(t('chat.musicDanceFailed'))
   } finally {
-    computerBusy.value = false
+    danceToggling.value = false
   }
 }
 
@@ -542,10 +547,10 @@ function replayTour() {
     @pointerup="maskUp = $event.target === $event.currentTarget"
     @click.self="maskDown && maskUp && emit('close')"
   >
-    <div class="settings-card">
+    <div ref="cardEl" class="settings-card">
       <h2 class="title">{{ t('settings.title') }}</h2>
 
-      <section class="section">
+      <section class="section" data-sec="system">
         <h3 class="section-title" :class="{ clickable: true, open: openSection === 'system' }" @click="toggleSection('system')">
           {{ t('settings.system') }}
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -555,16 +560,14 @@ function replayTour() {
         <div v-show="openSection === 'system'" class="section-body">
           <button v-if="desktop?.getLoginItem" class="setting-row" :disabled="launchBusy" @click="toggleLaunchAtLogin">
             <span class="row-info">
-              <span class="row-name">{{ t('settings.launchAtLogin') }}</span>
-              <span class="row-desc">{{ t('settings.launchDesc') }}</span>
+              <span class="row-name" :title="t('settings.launchDesc')">{{ t('settings.launchAtLogin') }}</span>
             </span>
             <span class="switch" :class="{ on: launchAtLogin }"><span class="knob"></span></span>
           </button>
 
           <div class="setting-row">
             <span class="row-info">
-              <span class="row-name">{{ t('settings.theme') }}</span>
-              <span class="row-desc">{{ t('settings.themeDesc') }}</span>
+              <span class="row-name" :title="t('settings.themeDesc')">{{ t('settings.theme') }}</span>
             </span>
             <div class="seg">
               <button class="seg-btn" :class="{ on: theme === 'dark' }" @click="selectTheme('dark')">{{ t('settings.dark') }}</button>
@@ -575,7 +578,6 @@ function replayTour() {
           <div class="setting-row">
             <span class="row-info">
               <span class="row-name">{{ t('settings.lang') }}</span>
-              <span class="row-desc">{{ t('settings.langDesc') }}</span>
             </span>
             <div class="seg">
               <button class="seg-btn" :class="{ on: lang === 'zh' }" @click="selectLang('zh')">中文</button>
@@ -585,8 +587,7 @@ function replayTour() {
 
           <div class="setting-row">
             <span class="row-info">
-              <span class="row-name">{{ t('settings.closeAction') }}</span>
-              <span class="row-desc">{{ t('settings.closeActionDesc') }}</span>
+              <span class="row-name" :title="t('settings.closeActionDesc')">{{ t('settings.closeAction') }}</span>
             </span>
             <div class="seg">
               <button class="seg-btn" :class="{ on: closePref === 'ask' }" @click="setClosePref('ask')">{{ t('settings.closeAsk') }}</button>
@@ -595,10 +596,16 @@ function replayTour() {
             </div>
           </div>
 
+          <button class="setting-row" :disabled="danceToggling" @click="toggleDance">
+            <span class="row-info">
+              <span class="row-name" :title="t('settings.musicDanceDesc')">{{ t('settings.musicDance') }}</span>
+            </span>
+            <span class="switch" :class="{ on: danceActive }"><span class="knob"></span></span>
+          </button>
+
           <div class="setting-row">
             <span class="row-info">
               <span class="row-name">{{ t('settings.onboardingName') }}</span>
-              <span class="row-desc">{{ t('settings.onboardingDesc') }}</span>
             </span>
             <div class="seg">
               <button class="seg-btn" @click="replayTour">{{ t('settings.replayTour') }}</button>
@@ -607,22 +614,24 @@ function replayTour() {
         </div>
       </section>
 
-      <section class="section">
-        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'sandbox' }" @click="toggleSection('sandbox')">
+      <section class="section" data-sec="sandbox">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'sandbox' }" @click="toggleSection('sandbox')" :title="t('settings.sandboxHint')">
           {{ t('settings.sandbox') }}
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </h3>
         <div v-show="openSection === 'sandbox'" class="section-body">
-          <p class="hint">{{ t('settings.sandboxHint') }}</p>
 
           <div class="field">
             <label class="label">{{ t('settings.rootLabel') }}</label>
-            <div class="input-row">
-              <input v-model="root" class="input" type="text" spellcheck="false" :placeholder="t('settings.rootPlaceholder')" />
-              <button class="browse-btn" :disabled="!root.trim()" @click="openDir(root.trim())">{{ t('common.open') }}</button>
-              <button class="browse-btn" @click="browseRoot">{{ t('settings.modify') }}</button>
+            <div class="dir-row">
+              <svg class="dir-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              </svg>
+              <span class="dir-path" :title="root">{{ root || t('settings.rootPlaceholder') }}</span>
+              <button class="row-btn" :disabled="!root.trim()" @click="openDir(root.trim())">{{ t('common.open') }}</button>
+              <button class="row-btn" @click="browseRoot">{{ t('settings.modify') }}</button>
             </div>
           </div>
 
@@ -651,18 +660,17 @@ function replayTour() {
         </div>
       </section>
 
-      <section class="section">
-        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'asr' }" @click="toggleSection('asr')">
+      <section class="section" data-sec="asr">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'asr' }" @click="toggleSection('asr')" :title="t('settings.asrHint')">
           {{ t('settings.asr') }}
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </h3>
         <div v-show="openSection === 'asr'" class="section-body">
-          <p class="hint">{{ t('settings.asrHint') }}</p>
 
           <div class="field">
-            <label class="label">{{ t('settings.asrAppId') }}</label>
+            <label class="label">{{ t('settings.asrAppId') }}<a class="get-link" @click.stop="openGetUrl('https://console.xfyun.cn/services/iat')">{{ t('settings.getKey') }}<svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg></a></label>
             <input v-model="streamAppId" class="input" type="text" spellcheck="false" :placeholder="t('settings.asrAppIdPlaceholder')" />
           </div>
 
@@ -697,18 +705,17 @@ function replayTour() {
         </div>
       </section>
 
-      <section class="section">
-        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'web' }" @click="toggleSection('web')">
+      <section class="section" data-sec="web">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'web' }" @click="toggleSection('web')" :title="t('settings.webSearchHint')">
           {{ t('settings.webSearch') }}
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </h3>
         <div v-show="openSection === 'web'" class="section-body">
-          <p class="hint">{{ t('settings.webSearchHint') }}</p>
 
           <div class="field">
-            <label class="label">{{ t('settings.webSearchKey') }}</label>
+            <label class="label">{{ t('settings.webSearchKey') }}<a class="get-link" @click.stop="openGetUrl('https://www.anysearch.com/console/api-keys')">{{ t('settings.getKey') }}<svg class="link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><path d="M15 3h6v6M10 14L21 3" /></svg></a></label>
             <input
               v-model="webApiKey"
               class="input"
@@ -730,15 +737,14 @@ function replayTour() {
         </div>
       </section>
 
-      <section class="section">
-        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'limits' }" @click="toggleSection('limits')">
+      <section class="section" data-sec="limits">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'limits' }" @click="toggleSection('limits')" :title="t('settings.limitsHint')">
           {{ t('settings.limits') }}
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </h3>
         <div v-show="openSection === 'limits'" class="section-body">
-          <p class="hint">{{ t('settings.limitsHint') }}</p>
 
           <div class="field">
             <label class="label">{{ t('settings.limitsOverall') }}</label>
@@ -759,20 +765,17 @@ function replayTour() {
         </div>
       </section>
 
-      <section class="section">
-        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'compression' }" @click="toggleSection('compression')">
+      <section class="section" data-sec="compression">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'compression' }" @click="toggleSection('compression')" :title="t('settings.compressionHint')">
           {{ t('settings.compression') }}
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </h3>
         <div v-show="openSection === 'compression'" class="section-body">
-          <p class="hint">{{ t('settings.compressionHint') }}</p>
-
           <button class="setting-row" @click="compressionEnabled = !compressionEnabled">
             <span class="row-info">
-              <span class="row-name">{{ t('settings.compressionEnabled') }}</span>
-              <span class="row-desc">{{ t('settings.compressionEnabledDesc') }}</span>
+              <span class="row-name" :title="t('settings.compressionEnabledDesc')">{{ t('settings.compressionEnabled') }}</span>
             </span>
             <span class="switch" :class="{ on: compressionEnabled }"><span class="knob"></span></span>
           </button>
@@ -799,35 +802,30 @@ function replayTour() {
         </div>
       </section>
 
-      <section class="section">
-        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'browser' }" @click="toggleSection('browser')">
+      <section class="section" data-sec="browser">
+        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'browser' }" @click="toggleSection('browser')" :title="t('settings.browserHint')">
           {{ t('settings.browser') }}
           <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M6 9l6 6 6-6" />
           </svg>
         </h3>
         <div v-show="openSection === 'browser'" class="section-body">
-          <p class="hint">{{ t('settings.browserHint') }}</p>
-
           <button class="setting-row" @click="browserHeadless = !browserHeadless">
             <span class="row-info">
-              <span class="row-name">{{ t('settings.browserHeadless') }}</span>
-              <span class="row-desc">{{ t('settings.browserHeadlessDesc') }}</span>
+              <span class="row-name" :title="t('settings.browserHeadlessDesc')">{{ t('settings.browserHeadless') }}</span>
             </span>
             <span class="switch" :class="{ on: browserHeadless }"><span class="knob"></span></span>
           </button>
 
           <button class="setting-row" @click="browserPersistLogin = !browserPersistLogin">
             <span class="row-info">
-              <span class="row-name">{{ t('settings.browserPersistLogin') }}</span>
-              <span class="row-desc">{{ t('settings.browserPersistLoginDesc') }}</span>
+              <span class="row-name" :title="t('settings.browserPersistLoginDesc')">{{ t('settings.browserPersistLogin') }}</span>
             </span>
             <span class="switch" :class="{ on: browserPersistLogin }"><span class="knob"></span></span>
           </button>
 
           <div class="wl-block">
-            <p class="row-name">{{ t('settings.browserWhitelist') }}</p>
-            <p class="row-desc">{{ t('settings.browserWhitelistDesc') }}</p>
+            <p class="row-name" :title="t('settings.browserWhitelistDesc')">{{ t('settings.browserWhitelist') }}</p>
             <div class="wl-add">
               <input
                 v-model="browserNewDomain"
@@ -856,28 +854,7 @@ function replayTour() {
       </section>
 
       <section class="section">
-        <h3 class="section-title" :class="{ clickable: true, open: openSection === 'computer' }" @click="toggleSection('computer')">
-          {{ t('settings.computer') }}
-          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 9l6 6 6-6" />
-          </svg>
-        </h3>
-        <div v-show="openSection === 'computer'" class="section-body">
-          <p class="hint">{{ t('settings.computerHint') }}</p>
-
-          <button class="setting-row" :disabled="computerBusy" @click="toggleComputer">
-            <span class="row-info">
-              <span class="row-name">{{ t('settings.computerEnabled') }}</span>
-              <span class="row-desc">{{ t('settings.computerEnabledDesc') }}</span>
-            </span>
-            <span class="switch" :class="{ on: computerEnabled }"><span class="knob"></span></span>
-          </button>
-        </div>
-      </section>
-
-      <section class="section">
-        <h3 class="section-title">{{ t('settings.data') }}</h3>
-        <p class="hint">{{ t('settings.dataHint') }}</p>
+        <h3 class="section-title" :title="t('settings.dataHint')">{{ t('settings.data') }}</h3>
 
         <p v-if="backupFeedback" class="feedback" :class="backupFeedback.ok ? 'ok' : 'err'">{{ backupFeedback.text }}</p>
 
@@ -959,6 +936,11 @@ function replayTour() {
   margin-bottom: $spacing-lg;
 }
 
+.section {
+  // 跳转定位（如聊天页上下文指示 → 上下文压缩）时标题留出与卡片顶边的呼吸空隙
+  scroll-margin-top: $spacing-lg;
+}
+
 .section + .section {
   margin-top: $spacing-lg;
   padding-top: $spacing-lg;
@@ -1031,13 +1013,11 @@ function replayTour() {
   }
 
   .row-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: $font-size-base;
     color: $text-primary;
-  }
-
-  .row-desc {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
   }
 }
 
@@ -1100,19 +1080,6 @@ function replayTour() {
   }
 }
 
-.hint {
-  font-size: $font-size-sm;
-  color: $text-tertiary;
-  line-height: 1.6;
-  margin-bottom: $spacing-md;
-
-  code {
-    font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
-    font-size: 0.9em;
-    color: $text-secondary;
-  }
-}
-
 .field {
   margin-bottom: $spacing-md;
 
@@ -1122,14 +1089,25 @@ function replayTour() {
     color: $text-secondary;
     margin-bottom: $spacing-xs;
   }
-}
 
-.input-row {
-  display: flex;
-  gap: $spacing-sm;
+  .get-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: $spacing-sm;
+    font-size: $font-size-xs;
+    color: $primary-color;
+    cursor: pointer;
+    vertical-align: baseline;
 
-  .input {
-    flex: 1;
+    &:hover {
+      text-decoration: underline;
+    }
+
+    .link-icon {
+      width: 12px;
+      height: 12px;
+    }
   }
 }
 
@@ -1251,17 +1229,11 @@ function replayTour() {
   margin-bottom: $spacing-md;
 
   .row-name {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: $font-size-sm;
     color: $text-primary;
-  }
-
-  .row-desc {
-    display: block;
-    font-size: $font-size-xs;
-    color: $text-tertiary;
-    margin: 2px 0 $spacing-sm;
-    line-height: 1.5;
   }
 }
 

@@ -182,11 +182,10 @@ function latencyText(ms: number) {
       </div>
 
       <div v-if="form.protocol === 'openai-chat'" class="field">
-        <label class="label">{{ t('presetForm.reasoningLabel') }}</label>
+        <label class="label" :title="t('presetForm.reasoningHint')">{{ t('presetForm.reasoningLabel') }}</label>
         <select v-model="form.reasoningEffort" class="input">
           <option v-for="opt in REASONING_OPTIONS" :key="opt.value" :value="opt.value">{{ t(opt.labelKey) }}</option>
         </select>
-        <span class="hint">{{ t('presetForm.reasoningHint') }}</span>
       </div>
 
       <p v-if="formError" class="error">{{ formError }}</p>
@@ -249,6 +248,9 @@ function latencyText(ms: number) {
 }
 
 .label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: $font-size-sm;
   color: $text-secondary;
 
@@ -282,11 +284,6 @@ select.input {
     background: $bg-panel;
     color: $text-primary;
   }
-}
-
-.hint {
-  font-size: $font-size-xs;
-  color: $text-tertiary;
 }
 
 .error {

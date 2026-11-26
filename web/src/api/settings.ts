@@ -54,15 +54,4 @@ export function updateBrowserSettings(
   return request('/settings/browser', { method: 'PUT', body: { headless, persistLogin, whitelist } })
 }
 
-/** 本机键鼠操控：开启后智能体获得截屏/点击/按键/打字工具（每次操作仍需审批卡放行） */
-export interface ComputerSettings {
-  enabled: boolean
-}
-
-export function getComputerSettings(): Promise<ComputerSettings> {
-  return request('/settings/computer')
-}
-
-export function updateComputerSettings(enabled: boolean): Promise<ComputerSettings> {
-  return request('/settings/computer', { method: 'PUT', body: { enabled } })
-}
+/** 本机键鼠操控：工具常驻（后台轮除外），每次操作弹审批卡；可在会话「工具授权」按会话开自动放行 */

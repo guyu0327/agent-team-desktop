@@ -212,7 +212,7 @@ async function onCtxSelect(key: string) {
                 :name="displayOf(c).name"
                 :avatar="displayOf(c).avatar"
                 :group-members="groupMembersOf(c)"
-                :badge="c.category === 'task' ? t('history.taskTag') : undefined"
+                :badge="c.category === 'task' ? t('history.taskTag') : c.type === 'group' && c.chatMode === 'free' ? t('conv.freeTag') : undefined"
                 :active="c.id === activeId"
               />
             </router-link>

@@ -13,6 +13,7 @@ import {
   type WechatStatus,
 } from '@/api/wechat'
 import { confirmAction } from '@/composables/confirm'
+import AgentPickerModal from '@/components/common/AgentPickerModal.vue'
 import { t } from '@/i18n'
 
 const emit = defineEmits<{ close: [] }>()
@@ -30,6 +31,13 @@ const agentId = ref('')
 const autoWrite = ref(false)
 const autoShell = ref(false)
 const receiveEnabled = ref(true)
+
+/** 处理智能体选择弹窗：选中即保存配置 */
+const showAgentPicker = ref(false)
+function onAgentPicked(id: string) {
+  agentId.value = id
+  saveConfig()
+}
 
 function fill(s: WechatStatus) {
   status.value = s
@@ -170,11 +178,9 @@ onUnmounted(async () => {
           <rect x="7" y="2" width="10" height="20" rx="2" />
           <path d="M11 18h2" />
         </svg>
-        <span class="head-title">{{ t('settings.wechat') }}</span>
+        <span class="head-title" :title="t('settings.wechatHint')">{{ t('settings.wechat') }}</span>
         <span class="state" :class="{ on: connected }">{{ connected ? t('settings.wechatConfirmed') : t('settings.wechatNotConnected') }}</span>
       </div>
-
-      <p class="hint">{{ t('settings.wechatHint') }}</p>
 
       <!-- 未连接：二维码登录 -->
       <template v-if="!connected">
@@ -211,38 +217,48 @@ onUnmounted(async () => {
 
         <button class="row" @click="receiveEnabled = !receiveEnabled; saveConfig()">
           <span class="row-info">
-            <span class="row-name">{{ t('settings.wechatEnabled') }}</span>
-            <span class="row-desc">{{ t('settings.wechatEnabledDesc') }}</span>
+            <span class="row-name" :title="t('settings.wechatEnabledDesc')">{{ t('settings.wechatEnabled') }}</span>
           </span>
           <span class="switch" :class="{ on: receiveEnabled }"><span class="knob"></span></span>
         </button>
 
         <div class="field">
           <label class="label">{{ t('settings.wechatAgent') }}</label>
-          <select v-model="agentId" class="input" @change="saveConfig">
-            <option value="">{{ t('settings.wechatAgentAuto') }}</option>
-            <option v-for="a in agentStore.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <button
+            type="button"
+            class="input agent-trigger"
+            :class="{ 'is-auto': !agentId }"
+            @click="showAgentPicker = true"
+          >
+            {{ agentId ? agentStore.getById(agentId)?.name : t('settings.wechatAgentAuto') }}
+          </button>
         </div>
 
         <button class="row" @click="autoWrite = !autoWrite; saveConfig()">
           <span class="row-info">
-            <span class="row-name">{{ t('settings.wechatAutoWrite') }}</span>
-            <span class="row-desc">{{ t('settings.wechatAutoWriteDesc') }}</span>
+            <span class="row-name" :title="t('settings.wechatAutoWriteDesc')">{{ t('settings.wechatAutoWrite') }}</span>
           </span>
           <span class="switch" :class="{ on: autoWrite }"><span class="knob"></span></span>
         </button>
 
         <button class="row" @click="autoShell = !autoShell; saveConfig()">
           <span class="row-info">
-            <span class="row-name">{{ t('settings.wechatAutoShell') }}</span>
-            <span class="row-desc">{{ t('settings.wechatAutoShellDesc') }}</span>
+            <span class="row-name" :title="t('settings.wechatAutoShellDesc')">{{ t('settings.wechatAutoShell') }}</span>
           </span>
           <span class="switch" :class="{ on: autoShell }"><span class="knob"></span></span>
         </button>
 
         <button class="disconnect-btn" @click="disconnectChan">{{ t('settings.wechatDisconnect') }}</button>
       </template>
+
+      <AgentPickerModal
+        v-if="showAgentPicker"
+        :title="t('settings.wechatAgent')"
+        :selected-id="agentId"
+        :auto-label="t('settings.wechatAgentAuto')"
+        @select="onAgentPicked"
+        @close="showAgentPicker = false"
+      />
     </div>
   </div>
 </template>
@@ -315,10 +331,10 @@ onUnmounted(async () => {
     }
   }
 
-  .hint {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
-    line-height: 1.6;
+  .row-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 }
 
@@ -402,13 +418,11 @@ onUnmounted(async () => {
   }
 
   .row-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     font-size: $font-size-base;
     color: $text-primary;
-  }
-
-  .row-desc {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
   }
 }
 
@@ -465,6 +479,16 @@ onUnmounted(async () => {
 
   &:focus {
     border-color: $primary-color;
+  }
+}
+
+// 处理智能体触发按钮：复用 .input 皮肤，自动档显示占位灰
+.agent-trigger {
+  text-align: left;
+  cursor: pointer;
+
+  &.is-auto {
+    color: $text-tertiary;
   }
 }
 

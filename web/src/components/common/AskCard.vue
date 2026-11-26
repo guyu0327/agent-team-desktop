@@ -8,7 +8,6 @@ const props = defineProps<{ ask: AskRequest }>()
 const emit = defineEmits<{ (e: 'answer', ask: AskRequest, text: string): void }>()
 
 const otherText = ref('')
-const showOther = ref(false)
 
 function pick(option: string) {
   emit('answer', props.ask, option)
@@ -27,22 +26,24 @@ function submitOther() {
       <Avatar :name="ask.agentName" :size="16" />
       <span class="ask-title">「{{ ask.agentName }}」{{ t('chat.askHint') }}</span>
     </div>
+    <!-- 问题是不带框的加粗正文，与下方可选的选项行拉开层次 -->
     <div class="ask-question">{{ ask.question }}</div>
     <div v-if="ask.options.length > 0" class="ask-options">
-      <button v-for="opt in ask.options" :key="opt" class="ask-option" @click="pick(opt)">{{ opt }}</button>
+      <button v-for="(opt, i) in ask.options" :key="opt" class="ask-option" @click="pick(opt)">
+        <span class="opt-mark">{{ String.fromCharCode(65 + i) }}</span>
+        <span class="opt-text">{{ opt }}</span>
+      </button>
     </div>
     <div class="ask-other">
-      <button v-if="!showOther" class="ask-option muted" @click="showOther = true">{{ t('chat.askOther') }}</button>
-      <template v-else>
-        <input
-          v-model="otherText"
-          class="ask-input"
-          :placeholder="t('chat.askInputPlaceholder')"
-          autofocus
-          @keydown.enter="submitOther"
-        />
-        <button class="ask-send" :disabled="!otherText.trim()" @click="submitOther">{{ t('chat.askSend') }}</button>
-      </template>
+      <span class="other-label">{{ t('chat.askOtherLabel') }}</span>
+      <input
+        v-model="otherText"
+        class="ask-input"
+        :placeholder="t('chat.askInputPlaceholder')"
+        autofocus
+        @keydown.enter="submitOther"
+      />
+      <button class="ask-send" :disabled="!otherText.trim()" @click="submitOther">{{ t('chat.askSend') }}</button>
     </div>
   </div>
 </template>
@@ -66,18 +67,15 @@ function submitOther() {
   .ask-title {
     font-size: $font-size-sm;
     font-weight: 600;
-    color: $text-primary;
+    color: $primary-color;
   }
 }
 
 .ask-question {
   margin-top: $spacing-xs;
-  padding: $spacing-sm;
-  border-radius: $radius-sm;
-  background: $bg-input;
-  border: 1px solid $border-color;
   font-size: $font-size-sm;
-  line-height: 1.5;
+  font-weight: 600;
+  line-height: 1.6;
   color: $text-primary;
   white-space: pre-wrap;
   word-break: break-word;
@@ -92,8 +90,11 @@ function submitOther() {
 }
 
 .ask-option {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-sm;
   text-align: left;
-  padding: 5px $spacing-lg;
+  padding: 6px $spacing-md;
   border: 1px solid $border-color;
   border-radius: $radius-sm;
   background: $bg-input;
@@ -103,21 +104,43 @@ function submitOther() {
   cursor: pointer;
   transition: border-color $transition-fast, background $transition-fast;
 
+  .opt-mark {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border: 1px solid $border-color;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: $text-tertiary;
+    transition: border-color $transition-fast, color $transition-fast;
+  }
+
   &:hover {
     border-color: $primary-color;
     background: rgba($primary-color, 0.06);
-  }
 
-  &.muted {
-    color: $text-tertiary;
+    .opt-mark {
+      border-color: $primary-color;
+      color: $primary-color;
+    }
   }
 }
 
 .ask-other {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: $spacing-sm;
   margin-top: $spacing-xs;
+
+  .other-label {
+    flex-shrink: 0;
+    font-size: $font-size-sm;
+    color: $text-secondary;
+  }
 
   .ask-input {
     flex: 1;

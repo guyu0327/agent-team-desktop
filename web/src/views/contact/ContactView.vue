@@ -184,10 +184,7 @@ async function onCtxSelect(key: string) {
               <div class="agent-item" :class="{ active: agent.id === activeId }">
                 <Avatar :name="agent.name" :avatar="agent.avatar" :size="36" />
                 <div class="agent-info">
-                  <span class="name">
-                    {{ agent.name }}
-                    <span v-if="agent.isOrchestrator" class="orch-chip">{{ t('common.orch') }}</span>
-                  </span>
+                  <span class="name">{{ agent.name }}</span>
                   <span class="desc">{{ agent.description || (agent.presetId ? presetStore.findById(agent.presetId)?.name : '') || t('common.noPreset') }}</span>
                 </div>
               </div>
@@ -366,19 +363,6 @@ async function onCtxSelect(key: string) {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-
-    .orch-chip {
-      display: inline-block;
-      margin-left: 4px;
-      font-size: 10px;
-      line-height: 1;
-      padding: 2px 5px;
-      border-radius: $radius-sm;
-      color: #34d399;
-      border: 1px solid rgba(52, 211, 153, 0.4);
-      background: rgba(52, 211, 153, 0.08);
-      vertical-align: 1px;
-    }
   }
 
   .desc {

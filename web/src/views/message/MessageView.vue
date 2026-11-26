@@ -180,6 +180,7 @@ const activeId = computed(() => (route.name === 'Chat' ? (route.params.id as str
             :active="c.id === activeId"
             :typing="conversationStore.isTyping(c.id)"
             :pinned="!!c.pinned"
+            :badge="c.type === 'group' && c.chatMode === 'free' ? t('conv.freeTag') : undefined"
           />
         </router-link>
         <div v-if="filteredConversations.length === 0" class="empty">{{ t('message.empty') }}</div>

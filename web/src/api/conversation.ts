@@ -70,8 +70,14 @@ export function createGroup(
   name: string,
   memberIds: string[],
   chatMode: 'passive' | 'free' = 'passive',
+  hostAgentId?: string | null,
 ): Promise<Conversation> {
-  return request('/conversations/group', { method: 'POST', body: { name, memberIds, chatMode } })
+  return request('/conversations/group', { method: 'POST', body: { name, memberIds, chatMode, hostAgentId } })
+}
+
+/** 设置/更换群聊编排者（会话角色）：agentId 传空串清除，回到全员依次回复 */
+export function setConversationHost(id: string, agentId: string): Promise<void> {
+  return request(`/conversations/${id}/host`, { method: 'PUT', body: { agentId } })
 }
 
 export function renameConversation(id: string, name: string): Promise<void> {
@@ -124,6 +130,11 @@ export function listOpGrants(id: string): Promise<OpGrant[]> {
   return request(`/conversations/${id}/op-grants`)
 }
 
+/** 手动开启本会话某类工具授权（工具授权弹层开关），等同审批卡「本会话允许」 */
+export function grantOp(id: string, opType: OpGrant['opType']): Promise<{ granted: boolean }> {
+  return request(`/conversations/${id}/op-grants/${opType}`, { method: 'PUT' })
+}
+
 /** 撤销本会话某一类工具授权（write/edit/shell/browser/computer），撤销即时生效 */
 export function revokeOpGrant(id: string, opType: OpGrant['opType']): Promise<{ revoked: boolean }> {
   return request(`/conversations/${id}/op-grants/${opType}`, { method: 'DELETE' })
@@ -170,8 +181,8 @@ export interface SendStreamHandlers {
   onConversationCreated?(conv: Conversation): void
   /** 编排协作中会话对象有变（如 add_member 中途拉人进群），携带最新会话 */
   onConversationUpdated?(conv: Conversation): void
-  /** 编排者开始/结束协调（会话级状态） */
-  onCoordinationStart?(e: { agentId: string; conversationId: string }): void
+  /** 编排者开始/结束协调（会话级状态）。mode：task=单聊执行任务 / team=团队协作（缺省 team） */
+  onCoordinationStart?(e: { agentId: string; conversationId: string; mode?: 'task' | 'team' }): void
   onCoordinationEnd?(e: { agentId: string; conversationId: string }): void
   /** 自由讨论接龙开始/结束（会话级状态） */
   onDiscussionStart?(e: { conversationId: string }): void
@@ -197,7 +208,8 @@ export interface SendStreamHandlers {
   onCompressStart?(e: { conversationId: string }): void
   /** 压缩结束；ok=false 即失败（本轮按预算截断历史照常回复，指示条转圈变红色叹号、error 点击可看） */
   onCompressEnd?(e: { conversationId: string; ok: boolean; error?: string }): void
-  onDone?(): void
+  /** 回合结束；e.interjected=true 为插话回执流（消息已落库并扇出，主轮仍在流式，勿做回合收尾） */
+  onDone?(e?: { interjected?: boolean }): void
 }
 
 interface SseBlock {
@@ -340,7 +352,7 @@ function dispatch(block: SseBlock, handlers: SendStreamHandlers) {
       handlers.onCompressEnd?.(payload)
       break
     case 'done':
-      handlers.onDone?.()
+      handlers.onDone?.(payload)
       break
   }
 }

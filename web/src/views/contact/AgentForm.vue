@@ -47,9 +47,10 @@ const form = reactive<AgentDraft>({
   description: '',
   presetId: '',
   imagePresetId: '',
-  isOrchestrator: false,
   systemPrompt: '',
   temperature: 0.7,
+  replyMinChars: 0,
+  replyMaxChars: 120,
   skillIds: [],
 })
 
@@ -62,9 +63,10 @@ function syncForm() {
   form.description = e?.description ?? ''
   form.presetId = e?.presetId ?? ''
   form.imagePresetId = e?.imagePresetId ?? ''
-  form.isOrchestrator = e?.isOrchestrator ?? false
   form.systemPrompt = e?.systemPrompt ?? ''
   form.temperature = e?.temperature ?? 0.7
+  form.replyMinChars = e?.replyMinChars ?? 0
+  form.replyMaxChars = e?.replyMaxChars ?? 120
   form.skillIds = [...(e?.skillIds ?? [])]
 }
 
@@ -252,11 +254,17 @@ async function autoFill() {
 async function save() {
   if (!form.name.trim() || !form.presetId) return
   form.avatar = encodeAvatar(avatarText.value, avatarColor.value)
+  // 数字输入框清空时 v-model.number 会给空串，统一归一成数字再提交（min 负值按 0 处理）
+  const payload = {
+    ...form,
+    replyMinChars: Math.max(0, Math.floor(Number(form.replyMinChars) || 0)),
+    replyMaxChars: Math.floor(Number(form.replyMaxChars) || 0),
+  }
   if (isEdit.value && props.id) {
-    await agentStore.updateAgentById(props.id, { ...form })
+    await agentStore.updateAgentById(props.id, payload)
     router.push(`/contact/${props.id}`)
   } else {
-    const agent = await agentStore.addAgent({ ...form })
+    const agent = await agentStore.addAgent(payload)
     router.push(`/contact/${agent.id}`)
   }
 }
@@ -287,6 +295,7 @@ function cancel() {
             type="button"
             class="btn primary autofill-btn"
             :disabled="autoLoading || !autoPrompt.trim() || !autoPresetId"
+            :title="t('agentForm.autoHint')"
             @click="autoFill"
           >
             ✨ {{ autoLoading ? t('agentForm.autoGenerating') : t('agentForm.autoGenerate') }}
@@ -294,7 +303,6 @@ function cancel() {
         </div>
         <p v-if="chatPresets.length === 0" class="error">{{ t('agentForm.autoNoModel') }}</p>
         <p v-if="autoError" class="error">{{ autoError }}</p>
-        <p class="autofill-hint">{{ t('agentForm.autoHint') }}</p>
       </div>
 
       <div class="field">
@@ -394,14 +402,13 @@ function cancel() {
       </div>
 
       <div class="field">
-        <label class="label">{{ t('agentForm.imagePresetLabel') }}</label>
+        <label class="label" :title="t('agentForm.imagePresetHint')">{{ t('agentForm.imagePresetLabel') }}</label>
         <select v-model="form.imagePresetId" class="input">
           <option value="">{{ t('agentForm.noImagePreset') }}</option>
           <option v-for="p in imagePresetOptions" :key="p.id" :value="p.id">
             {{ imagePresetLabel(p) }}
           </option>
         </select>
-        <p class="preset-empty">{{ t('agentForm.imagePresetHint') }}</p>
       </div>
 
       <div class="field">
@@ -415,16 +422,6 @@ function cancel() {
       </div>
 
       <div class="field">
-        <label class="check-row">
-          <input v-model="form.isOrchestrator" type="checkbox" />
-          <span>
-            {{ t('agentForm.setOrchestrator') }}
-            <em>{{ t('agentForm.orchestratorHint') }}</em>
-          </span>
-        </label>
-      </div>
-
-      <div class="field">
         <label class="label">{{ t('agentForm.tempLabel', { v: form.temperature }) }}</label>
         <input v-model.number="form.temperature" type="range" min="0" max="2" step="0.1" class="range" />
         <div class="range-hints">
@@ -435,8 +432,17 @@ function cancel() {
       </div>
 
       <div class="field">
-        <label class="label">{{ t('agentForm.skillsLabel') }}</label>
-        <p class="preset-empty">{{ t('agentForm.skillsHint') }}</p>
+        <label class="label" :title="t('agentForm.replyLenHint')">{{ t('agentForm.replyLenLabel') }}</label>
+        <div class="len-row">
+          <input v-model.number="form.replyMinChars" type="number" min="0" class="input len-input" />
+          <span class="len-sep">–</span>
+          <input v-model.number="form.replyMaxChars" type="number" min="0" class="input len-input" />
+          <span class="len-unit">{{ t('agentForm.replyLenUnit') }}</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label" :title="t('agentForm.skillsHint')">{{ t('agentForm.skillsLabel') }}</label>
         <div v-if="skillStore.skills.length > 0" class="skill-checks">
           <label
             v-for="s in skillStore.skills"
@@ -512,12 +518,6 @@ function cancel() {
     padding: 8px $spacing-lg;
     white-space: nowrap;
   }
-}
-
-.autofill-hint {
-  font-size: $font-size-xs;
-  color: $text-tertiary;
-  line-height: 1.5;
 }
 
 .field {
@@ -782,6 +782,23 @@ select.input {
   justify-content: space-between;
   font-size: $font-size-xs;
   color: $text-tertiary;
+}
+
+.len-row {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+
+  .len-input {
+    width: 90px;
+  }
+
+  .len-sep,
+  .len-unit {
+    flex-shrink: 0;
+    font-size: $font-size-sm;
+    color: $text-tertiary;
+  }
 }
 
 .error {

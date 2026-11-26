@@ -88,10 +88,7 @@ async function remove() {
         <div class="profile-header drag-region">
           <Avatar :name="agent.name" :avatar="agent.avatar" :size="64" />
           <div class="profile-title">
-            <h2 class="name">
-              {{ agent.name }}
-              <span v-if="agent.isOrchestrator" class="orch-chip">{{ t('common.orchestrator') }}</span>
-            </h2>
+            <h2 class="name">{{ agent.name }}</h2>
             <p class="desc">{{ agent.description || t('contact.noDesc') }}</p>
           </div>
         </div>
@@ -201,20 +198,6 @@ async function remove() {
     font-size: $font-size-xl;
     font-weight: 600;
     color: $text-primary;
-
-    .orch-chip {
-      display: inline-block;
-      margin-left: 6px;
-      font-size: $font-size-xs;
-      font-weight: 400;
-      line-height: 1;
-      padding: 3px 7px;
-      border-radius: $radius-sm;
-      color: #34d399;
-      border: 1px solid rgba(52, 211, 153, 0.4);
-      background: rgba(52, 211, 153, 0.08);
-      vertical-align: 3px;
-    }
   }
 
   .desc {

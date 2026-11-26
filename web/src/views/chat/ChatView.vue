@@ -6,7 +6,7 @@ import { useUserStore } from '@/stores/user'
 import { useAgentStore } from '@/stores/agent'
 import { useModelPresetStore } from '@/stores/modelPreset'
 import { alertAction, confirmAction } from '@/composables/confirm'
-import { showSettings } from '@/composables/settingsModal'
+import { openSettings, showSettings } from '@/composables/settingsModal'
 import { stopOrchestration } from '@/api/conversation'
 import { getWechatStatus, updateWechatSettings, type WechatStatus } from '@/api/wechat'
 import { getQqStatus, updateQqSettings, type QqStatus } from '@/api/qq'
@@ -53,7 +53,8 @@ let defaultInputHeight = 0
 const menuOpen = ref(false)
 const showHistory = ref(false)
 const showMembers = ref(false)
-const showGrants = ref(false)
+const showFileGrants = ref(false)
+const showToolGrants = ref(false)
 const pendingAttachments = ref<Attachment[]>([])
 
 // @ 成员自动补全：start 为草稿中 @ 的下标，query 为 @ 后到光标间的文本
@@ -109,11 +110,11 @@ watch(isChannelConv, (v) => {
   if (!v) showWechatAgentPop.value = false
 }, { immediate: true })
 
-/** 配置为空时按服务端规则（编排者优先）展示实际生效的智能体 */
+/** 配置为空时按服务端规则（取第一个智能体）展示实际生效的智能体 */
 const channelAgent = computed<Agent | null>(() => {
   const id = channelStatus.value?.agentId
   if (id) return agentStore.getById(id) ?? null
-  return agentStore.agents.find((a) => a.isOrchestrator) ?? agentStore.agents[0] ?? null
+  return agentStore.agents[0] ?? null
 })
 
 async function setChannelAgent(agentId: string) {
@@ -174,9 +175,12 @@ const singleAgent = computed(() => {
 
 const coordinator = computed(() => {
   if (!conversationStore.isCoordinating(props.id)) return null
-  const agentId = conversationStore.orchestratingByConv[props.id]
-  return agentId ? (agentStore.getById(agentId) ?? null) : null
+  const cur = conversationStore.orchestratingByConv[props.id]
+  return cur ? (agentStore.getById(cur.agentId) ?? null) : null
 })
+
+/** 协调横幅模式：task=编排者单聊里自己执行任务，team=已建群/在群里协调成员（缺省 team） */
+const teamMode = computed(() => conversationStore.orchestratingByConv[props.id]?.mode !== 'task')
 
 const discussing = computed(() => conversationStore.isDiscussing(props.id))
 
@@ -381,6 +385,10 @@ const configTip = computed(() => {
 })
 
 const inputPlaceholder = computed(() => {
+  // 回复/讨论进行中：发送即插话（当前成员说完生效）——发送按钮此时是停止键，靠提示告知键盘入口
+  if (conversationStore.isTyping(props.id)) {
+    return t('chat.phInterject')
+  }
   if (conversation.value?.type === 'group') {
     return t('chat.phGroup')
   }
@@ -393,8 +401,8 @@ const memberAgents = computed<Agent[]>(() => {
   return conv.memberIds
     .map((id) => agentStore.getById(id))
     .filter((a): a is Agent => !!a)
-    // 编排者排第一，群成员弹层与 @ 提及候选都优先看到
-    .sort((a, b) => Number(b.isOrchestrator) - Number(a.isOrchestrator))
+    // 编排者（会话角色）排第一，群成员弹层与 @ 提及候选都优先看到
+    .sort((a, b) => Number(b.id === conv.hostAgentId) - Number(a.id === conv.hostAgentId))
 })
 
 const mentionCandidates = computed(() => {
@@ -602,6 +610,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopWatch?.()
   stopWatch = null
+  danceDispose() // 离开聊天页停掉采集（意图仍在，重进自动恢复）
   window.removeEventListener('pointerup', onReleaseAnywhere)
   window.removeEventListener('pointercancel', onReleaseAnywhere)
   window.removeEventListener('resize', onWindowResize)
@@ -653,14 +662,16 @@ function senderInfo(msg: Message): { name: string; avatar?: string } {
 }
 
 function senderBadge(msg: Message): string | undefined {
-  // QQ 外部成员按群角色标注（群主/管理员），普通成员无徽标；其余走智能体主脑徽标
+  // QQ 外部成员按群角色标注（群主/管理员），普通成员无徽标；其余按会话编排者标注（会话角色，动态）
   if (isExternal(msg)) {
     if (msg.senderRole === 'owner') return t('chat.qqOwner')
     if (msg.senderRole === 'admin') return t('chat.qqAdmin')
     return undefined
   }
   if (msg.senderType === 'user') return undefined
-  return agentStore.getById(msg.senderId)?.isOrchestrator ? t('common.orchestrator') : undefined
+  // 自由讨论时指挥休眠、按普通成员接龙：气泡不再标指挥（挂着标签发言会误导为他在协调）
+  if (conversation.value?.chatMode === 'free') return undefined
+  return conversation.value?.hostAgentId === msg.senderId ? t('common.host') : undefined
 }
 
 /** 思考中指示条：发出消息即显示；reply_pending 预告的思考窗口（含接龙/依次回复的
@@ -678,12 +689,23 @@ const showThinking = computed(() => {
 })
 
 /** 思考中的智能体：优先「即将发言」的成员（接龙/依次回复的间隔期），单聊回落会话对象，
- *  编排者群聊回落协调者（coordination_start 早于模型思考，首段思考也有头像） */
+ *  编排者群聊回落协调者（coordination_start 早于模型思考，首段思考也有头像）；
+ *  都未预告但思考正文已在流时，回落最后一位流式发言的成员——预告必然先于下一位的
+ *  思考到达，此刻仍是上一回合所有人在酝酿下一段，指认他是安全的。其余情况（回合
+ *  边界预告未到）返回空，思考条整行不出现：头像必须与气泡同帧出现，且不能先亮出
+ *  上一位的头像冒充当前发言人 */
 const thinkingAgent = computed(() => {
   const id = conversationStore.pendingReplyByConv[props.id]
     ?? conversation.value?.agentId
     ?? coordinator.value?.id
-  return id ? agentStore.getById(id) : undefined
+  if (id) return agentStore.getById(id)
+  if (conversationStore.thinkingByConv[props.id]?.text) {
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const a = agentStore.getById(messages.value[i].senderId)
+      if (a) return a
+    }
+  }
+  return undefined
 })
 
 /** 思考过程流文本（thinking_delta）：气泡未打开的思考窗口期在思考条内展示；有 messageId 的在气泡内 */
@@ -734,32 +756,15 @@ function jumpToBottom() {
   forceScrollToBottom()
 }
 
-// ---------- 音乐律动：电脑播放的声音经系统回环采集，导航刻度按频段像频谱柱一样跳动 ----------
+// ---------- 音乐律动：电脑播放的声音经系统回环采集，导航刻度按频段像频谱柱一样跳动（开关在设置 → 系统设置） ----------
 
 const {
   active: danceActive,
-  start: danceStart,
-  stop: danceStop,
   resumeIfNeeded: danceResume,
   setCount: danceSetCount,
   setPainter: danceSetPainter,
+  dispose: danceDispose,
 } = useMusicDance()
-const danceToggling = ref(false)
-
-// 采集授权可耗时数秒，处理中给脉冲反馈，避免误以为没点上而重复点击把刚开的又关掉
-async function toggleDance() {
-  if (danceToggling.value) return
-  danceToggling.value = true
-  try {
-    if (danceActive.value) danceStop()
-    else await danceStart()
-  } catch (e) {
-    console.warn('[musicDance] 采集系统声音失败', e)
-    showToast(t('chat.musicDanceFailed'))
-  } finally {
-    danceToggling.value = false
-  }
-}
 
 // ---------- 提问导航条：消息区右缘贴滚动条的刻度条，「我发出的提问」每条一个刻度（DeepSeek 风格） ----------
 // 悬停任意刻度展开附近提问索引面板（卡片式，悬停行钉在其刻度旁、滚轮式缩放变淡）；移入面板后同一套滚轮跟随鼠标（行悬停滑窗+滚轮滚动）、点击平滑跳转、可视高亮；律动开启时上下补淡色辅助条。共享逻辑在 composables/questionNav.ts
@@ -972,7 +977,7 @@ async function onPaste(e: ClipboardEvent) {
 }
 
 async function handleStopCoordination() {
-  const name = coordinator.value?.name ?? t('common.orchestrator')
+  const name = coordinator.value?.name ?? t('common.host')
   const ok = await confirmAction({
     title: t('chat.stop'),
     message: discussing.value ? t('chat.stopDiscussMsg') : t('chat.stopCoordMsg', { name }),
@@ -1118,7 +1123,7 @@ function onKeydown(e: KeyboardEvent) {
         <button v-for="a in memberAgents" :key="a.id" class="member-row" @click="showMembers = false">
           <Avatar :name="a.name" :avatar="a.avatar" :size="28" />
           <span class="member-name">{{ a.name }}</span>
-          <span v-if="a.isOrchestrator" class="member-badge">{{ t('common.orchestrator') }}</span>
+          <span v-if="a.id === conversation?.hostAgentId" class="member-badge">{{ t('common.host') }}</span>
         </button>
       </div>
     </template>
@@ -1137,7 +1142,7 @@ function onKeydown(e: KeyboardEvent) {
             :sender-name="senderInfo(msg).name"
             :sender-avatar="senderInfo(msg).avatar"
             :badge="senderBadge(msg)"
-            :show-name="isExternal(msg)"
+            :show-name="(conversation?.type === 'group' || isWechat || isExternal(msg)) && !isSelf(msg)"
             :typing="conversationStore.isTyping(props.id) && i === messages.length - 1"
             :thinking="conversationStore.thinkingByMsg[msg.id]"
             :mentionable="conversation?.type === 'group' && !isSelf(msg)"
@@ -1148,7 +1153,7 @@ function onKeydown(e: KeyboardEvent) {
             @avatar-menu="openAvatarCtx($event, msg)"
           />
         </template>
-        <div v-if="showThinking" class="thinking-row">
+        <div v-if="showThinking && thinkingAgent" class="thinking-row">
           <Avatar v-if="thinkingAgent" :name="thinkingAgent.name" :avatar="thinkingAgent.avatar" :size="36" />
           <div class="thinking-col">
             <span v-if="thinkingAgent" class="thinking-name">{{ thinkingAgent.name }}</span>
@@ -1260,7 +1265,7 @@ function onKeydown(e: KeyboardEvent) {
 
     <div v-if="coordinator || discussing" class="coordination-tip">
       <span class="pulse"></span>
-      <span v-if="coordinator">{{ t('chat.coordinating', { name: coordinator.name }) }}</span>
+      <span v-if="coordinator">{{ teamMode ? t('chat.coordinating', { name: coordinator.name }) : t('chat.executingTask', { name: coordinator.name }) }}</span>
       <span v-else>{{ t('chat.discussingTip') }}</span>
       <button class="stop-btn" @click="handleStopCoordination">{{ t('chat.stop') }}</button>
     </div>
@@ -1352,34 +1357,17 @@ function onKeydown(e: KeyboardEvent) {
             <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
           </svg>
         </span>
-        <span class="tool" :title="t('chat.sessionGrants')" @click="showGrants = !showGrants">
+        <span class="tool" :title="t('chat.sessionFileGrants')" @click="showFileGrants = !showFileGrants">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <rect x="10" y="11.8" width="4" height="3.2" rx="0.8" />
+            <path d="M10.8 11.8v-1a1.2 1.2 0 0 1 2.4 0v1" />
+          </svg>
+        </span>
+        <span class="tool" :title="t('chat.sessionToolGrants')" @click="showToolGrants = !showToolGrants">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z" />
             <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </span>
-        <span
-          class="tool mic"
-          :class="{ live: rtPhase !== 'idle' }"
-          :title="micTitle"
-          @pointerdown.prevent="onMicDown"
-          @contextmenu.prevent
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <rect x="9" y="3" width="6" height="11" rx="3" />
-            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke-linecap="round" />
-          </svg>
-        </span>
-        <span
-          class="tool dance"
-          :class="{ live: danceActive, pending: danceToggling }"
-          :title="t('chat.musicDanceTip')"
-          @click="toggleDance"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M9 18V5l11-2v12" stroke-linecap="round" stroke-linejoin="round" />
-            <circle cx="6.5" cy="18" r="2.5" />
-            <circle cx="17.5" cy="15" r="2.5" />
           </svg>
         </span>
       </div>
@@ -1396,13 +1384,14 @@ function onKeydown(e: KeyboardEvent) {
         @paste="onPaste"
       />
       <div class="send-row">
-        <!-- 上下文注入量指示 + 压缩状态：压缩中百分比旁转圈，失败转圈原地变红色叹号（点击看原因） -->
+        <!-- 上下文注入量指示 + 压缩状态：压缩中百分比旁转圈，失败转圈原地变红色叹号（点击看原因）；点击文字打开压缩设置 -->
         <div v-if="ctxSize || compressing || compressError" class="ctx-status">
           <span
             v-if="ctxSize"
             class="ctx-size"
             :class="{ warn: ctxSize.chars > ctxSize.budget * 0.9 }"
             :title="t('chat.contextSizeTip')"
+            @click="openSettings('compression')"
           >
             {{ t('chat.contextSize', { fixed: fmtK(ctxSize.fixed ?? 0), compress: fmtK(ctxSize.compressible ?? 0), total: fmtK(ctxSize.budget), percent: pct(ctxSize.chars, ctxSize.budget) }) }}
           </span>
@@ -1419,6 +1408,19 @@ function onKeydown(e: KeyboardEvent) {
           </span>
           <div v-if="compressErrOpen && compressError" class="compress-err-pop">{{ compressError }}</div>
         </div>
+        <!-- 语音转文字：按住说话实时转写（未配置时点击前往设置） -->
+        <span
+          class="send-mic"
+          :class="{ live: rtPhase !== 'idle' }"
+          :title="micTitle"
+          @pointerdown.prevent="onMicDown"
+          @contextmenu.prevent
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke-linecap="round" />
+          </svg>
+        </span>
         <button v-if="canStopReply" class="send-btn stop" @click="handleStopReply">
           {{ t('chat.stopGenerating') }}
         </button>
@@ -1427,7 +1429,8 @@ function onKeydown(e: KeyboardEvent) {
          </button>
       </div>
 
-      <SessionGrantsPopover v-if="showGrants" :conversation-id="props.id" @close="showGrants = false" />
+      <SessionGrantsPopover v-if="showFileGrants" mode="files" :conversation-id="props.id" @close="showFileGrants = false" />
+      <SessionGrantsPopover v-if="showToolGrants" mode="tools" :conversation-id="props.id" @close="showToolGrants = false" />
     </footer>
 
     <!-- 通道会话只读：聊天在微信/QQ 内进行，桌面端仅作镜像展示 -->
@@ -2388,32 +2391,6 @@ function onKeydown(e: KeyboardEvent) {
     }
   }
 
-  .mic {
-    user-select: none;
-    touch-action: none;
-
-    &.recording {
-      color: #fa5151;
-      animation: mic-pulse 1.2s infinite ease-in-out;
-    }
-
-    &.live {
-      color: #07c160;
-      animation: mic-pulse 1.2s infinite ease-in-out;
-    }
-  }
-
-  .dance {
-    &.live {
-      color: $primary-color;
-    }
-
-    /* 采集授权可耗时数秒：脉冲提示处理中，别重复点击 */
-    &.pending {
-      color: $text-primary;
-      animation: mic-pulse 1.2s infinite ease-in-out;
-    }
-  }
 }
 
 .voice-status {
@@ -2529,6 +2506,41 @@ function onKeydown(e: KeyboardEvent) {
   align-items: center;
 }
 
+/* 语音转文字按钮（发送按钮左侧）：按住说话，识别中绿色脉冲 */
+.send-mic {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid $border-color;
+  background: transparent;
+  color: $text-secondary;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-right: $spacing-sm;
+  user-select: none;
+  touch-action: none;
+  flex-shrink: 0;
+  transition: all $transition-fast;
+
+  svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  &:hover {
+    color: $text-primary;
+    border-color: $text-tertiary;
+  }
+
+  &.live {
+    color: #07c160;
+    border-color: rgba(7, 193, 96, 0.5);
+    animation: mic-pulse 1.2s infinite ease-in-out;
+  }
+}
+
 /* 上下文注入量指示（发送行左下角）：文字 + 压缩转圈/失败叹号同排，错误气泡锚定在其上方 */
 .ctx-status {
   position: relative;
@@ -2546,9 +2558,19 @@ function onKeydown(e: KeyboardEvent) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+
+  // 与其他可点元素同口径：悬浮亮一档（三级文字 → 二级文字），不跳主色
+  &:hover {
+    color: $text-secondary;
+  }
 
   &.warn {
     color: #fa8a51;
+
+    &:hover {
+      color: #ffa76e;
+    }
   }
 }
 

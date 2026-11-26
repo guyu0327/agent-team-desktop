@@ -61,10 +61,7 @@ async function confirm() {
   <div class="dialog-overlay" @click.self="emit('close')">
     <div class="dialog">
       <h3 class="title">{{ t('models.applyAgents') }}</h3>
-      <p class="subtitle">
-        {{ preset.name }}
-        <span class="hint">{{ isImage ? t('models.applyHintImage') : t('models.applyHintChat') }}</span>
-      </p>
+      <p class="subtitle" :title="isImage ? t('models.applyHintImage') : t('models.applyHintChat')">{{ preset.name }}</p>
 
       <template v-if="agentStore.agents.length > 0">
         <div class="toolbar">
@@ -136,11 +133,6 @@ async function confirm() {
   display: flex;
   align-items: center;
   gap: $spacing-sm;
-
-  .hint {
-    font-size: $font-size-xs;
-    color: $text-tertiary;
-  }
 }
 
 .toolbar {
